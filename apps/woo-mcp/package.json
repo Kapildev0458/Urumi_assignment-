@@ -1,0 +1,26 @@
+{
+  "name": "@urumi/woo-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WooCommerce MCP server (Streamable HTTP) for the Urumi platform.",
+  "type": "module",
+  "main": "dist/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "npm run build && node --test dist/oauth.test.js dist/dates.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "express": "5.2.1",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3"
+  }
+}

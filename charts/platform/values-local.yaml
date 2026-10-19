@@ -1,0 +1,22 @@
+# Local k3d cluster. Hosts resolve through nip.io wildcard DNS to 127.0.0.1 (see README).
+global:
+  domain: 127.0.0.1.nip.io
+
+store:
+  ingress:
+    className: traefik
+    tls:
+      enabled: false
+  wordpress:
+    persistence:
+      storageClass: local-path
+      size: 2Gi
+  mariadb:
+    persistence:
+      storageClass: local-path
+      size: 2Gi
+
+woo-mcp:
+  image:
+    # Built and pushed by scripts\build-images.ps1 to the k3d registry.
+    repository: localhost:5000/urumi/woo-mcp

@@ -1,0 +1,49 @@
+# Default values for the WooCommerce MCP server chart.
+
+global:
+  domain: 127.0.0.1.nip.io
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: localhost:5000/urumi/woo-mcp
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Which store this server talks to. Empty values are derived from the release name, matching
+# the store chart installed by the same umbrella release ("<release>-store-...").
+store:
+  # In-cluster WordPress URL. Default: http://<release>-store-wordpress
+  serviceUrl: ""
+  # Store's public home URL (WP_HOME); WooCommerce verifies OAuth signatures against it.
+  # Default: http://store.<global.domain>
+  publicUrl: ""
+  # Secret with consumer-key / consumer-secret. Default: <release>-store-woo-api
+  apiSecret: ""
+  timeoutMs: 10000
+
+# Shared bearer token the gateway must send. Generated once and kept across upgrades unless
+# existingSecret (key: token) is set. The gateway registers this server with that credential.
+auth:
+  enabled: true
+  existingSecret: ""
+
+service:
+  port: 80
+
+networkPolicy:
+  enabled: true
+  # Only pods matching these labels (in the release namespace) may call the MCP server.
+  allowedClients:
+    - app.kubernetes.io/component: gateway
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

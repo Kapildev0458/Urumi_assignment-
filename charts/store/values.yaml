@@ -1,0 +1,115 @@
+# Default values for the store chart. Environment differences go in
+# charts/platform/values-local.yaml and values-prod.yaml, never in templates.
+
+global:
+  # Base domain for every Ingress host. Local: nip.io wildcard DNS -> 127.0.0.1.
+  domain: 127.0.0.1.nip.io
+
+nameOverride: ""
+fullnameOverride: ""
+
+ingress:
+  enabled: true
+  className: traefik
+  # Full host; when empty it is "<hostPrefix>.<global.domain>".
+  host: ""
+  hostPrefix: store
+  annotations: {}
+  tls:
+    enabled: false
+    # Secret holding the certificate (created by cert-manager when the issuer annotation is set).
+    secretName: ""
+
+store:
+  title: Urumi Store
+  currency: USD
+  # WooCommerce "default country" option, e.g. US:CA or IN:KA.
+  country: "US:CA"
+  # Create one sample product on first install so the storefront is not empty.
+  sampleProduct: true
+
+# Generated credentials. Leave existingSecret empty and the chart generates random values
+# once and keeps them across upgrades. To bring your own, create a Secret with the keys
+# listed in templates/secret-credentials.yaml and put its name here.
+credentials:
+  existingSecret: ""
+
+# Consumer key/secret the WooCommerce MCP server uses for the REST API. Same rules as above;
+# keys: consumer-key (ck_...), consumer-secret (cs_...).
+wooApi:
+  existingSecret: ""
+
+wordpress:
+  image:
+    repository: wordpress
+    tag: 7.1.3-php8.3-apache
+    pullPolicy: IfNotPresent
+  admin:
+    user: admin
+    email: admin@example.com
+  # Optional extra PHP appended to wp-config.php.
+  extraConfig: ""
+  persistence:
+    # Only wp-content (plugins, themes, uploads) is persisted. WordPress core comes from the
+    # image, so upgrading WordPress = changing image.tag (and rolling back works the same way).
+    size: 2Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+
+woocommerce:
+  # Pinned so installs are reproducible: "latest" once pulled a WooCommerce that needed a newer
+  # WordPress than the image. Bump it together with wordpress.image.tag. Changing it on upgrade
+  # reinstalls that version and runs DB migrations. Empty = latest from wordpress.org.
+  version: "11.2.1"
+
+mariadb:
+  image:
+    repository: mariadb
+    tag: "11.4"
+    pullPolicy: IfNotPresent
+  database: wordpress
+  user: wordpress
+  persistence:
+    size: 2Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+
+# One-shot WP-CLI job (Helm post-install/upgrade hook) that installs and configures WordPress
+# + WooCommerce. Every step is idempotent, so it is safe on every upgrade.
+setup:
+  image:
+    repository: wordpress
+    tag: cli-2.12-php8.3
+    pullPolicy: IfNotPresent
+  backoffLimit: 4
+  activeDeadlineSeconds: 900
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+networkPolicy:
+  enabled: true
+  # Namespace of the ingress controller allowed to reach WordPress (Traefik on k3s).
+  ingressControllerNamespace: kube-system
+  # Additional in-cluster clients allowed to call WordPress (e.g. the WooCommerce MCP server).
+  # Each entry is a podSelector matchLabels map, matched within the release namespace.
+  allowedClients:
+    - app.kubernetes.io/component: woo-mcp

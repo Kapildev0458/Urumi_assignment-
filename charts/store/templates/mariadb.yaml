@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "store.mariadbService" . }}
+  labels:
+    {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mariadb
+spec:
+  # Headless: governs the StatefulSet and resolves straight to the single DB pod.
+  clusterIP: None
+  selector:
+    {{- include "store.selectorLabels" (dict "ctx" . "component" "mariadb") | nindent 4 }}
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "store.mariadbService" . }}
+  labels:
+    {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mariadb
+spec:
+  serviceName: {{ include "store.mariadbService" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "store.selectorLabels" (dict "ctx" . "component" "mariadb") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "store.labels" . | nindent 8 }}
+        app.kubernetes.io/component: mariadb
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: mariadb
+          image: "{{ .Values.mariadb.image.repository }}:{{ .Values.mariadb.image.tag }}"
+          imagePullPolicy: {{ .Values.mariadb.image.pullPolicy }}
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MARIADB_DATABASE
+              value: {{ .Values.mariadb.database | quote }}
+            - name: MARIADB_USER
+              value: {{ .Values.mariadb.user | quote }}
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "store.credentialsSecret" . }}
+                  key: mariadb-password
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "store.credentialsSecret" . }}
+                  key: mariadb-root-password
+          # healthcheck.sh ships with the official image and uses its own local healthcheck user.
+          startupProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect"]
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.mariadb.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "store.selectorLabels" (dict "ctx" . "component" "mariadb") | nindent 10 }}
+      spec:
+        accessModes: [{{ .Values.mariadb.persistence.accessMode | quote }}]
+        {{- with .Values.mariadb.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.mariadb.persistence.size }}

@@ -1,0 +1,39 @@
+# Local Kubernetes cluster for development.
+# Uses k3d (k3s in Docker) so local == the k3s distribution we run on the VPS.
+# Create with: scripts/cluster-up.ps1   (or: k3d cluster create --config k3d/cluster-local.yaml)
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: urumi
+servers: 1
+agents: 0
+# Pin k3s so the VPS can install the exact same version (INSTALL_K3S_VERSION=v1.35.5+k3s1).
+image: rancher/k3s:v1.35.5-k3s1
+ports:
+  # Traefik (bundled with k3s) is exposed on the host through the k3d load balancer.
+  - port: 80:80
+    nodeFilters:
+      - loadbalancer
+  - port: 443:443
+    nodeFilters:
+      - loadbalancer
+registries:
+  # Local image registry (container name "urumi-registry"; k3d 5.9 does not add a "k3d-" prefix).
+  # On the host, push to localhost:5000/<image>:<tag>.
+  create:
+    name: urumi-registry
+    host: "0.0.0.0"
+    hostPort: "5000"
+  # Mirror so pods can use the very same reference (localhost:5000/<image>) as the host.
+  config: |
+    mirrors:
+      "localhost:5000":
+        endpoint:
+          - http://urumi-registry:5000
+options:
+  k3d:
+    wait: true
+    timeout: "300s"
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true

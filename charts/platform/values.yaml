@@ -1,0 +1,11 @@
+# Shared defaults. Environment-specific overrides live in values-local.yaml / values-prod.yaml.
+
+global:
+  # Every Ingress host is "<prefix>.<domain>".
+  domain: 127.0.0.1.nip.io
+
+store:
+  enabled: true
+
+woo-mcp:
+  enabled: true

@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "woo-mcp.fullname" . }}
+  labels:
+    {{- include "woo-mcp.labels" . | nindent 4 }}
+spec:
+  # ClusterIP only and no Ingress: the server is never exposed outside the cluster.
+  type: ClusterIP
+  selector:
+    {{- include "woo-mcp.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "woo-mcp.fullname" . }}
+  labels:
+    {{- include "woo-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "woo-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "woo-mcp.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: woo-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: WOO_URL
+              value: {{ include "woo-mcp.storeServiceUrl" . | quote }}
+            - name: WOO_PUBLIC_URL
+              value: {{ include "woo-mcp.storePublicUrl" . | quote }}
+            - name: WOO_TIMEOUT_MS
+              value: {{ .Values.store.timeoutMs | quote }}
+            - name: WOO_CONSUMER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "woo-mcp.storeApiSecret" . }}
+                  key: consumer-key
+            - name: WOO_CONSUMER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "woo-mcp.storeApiSecret" . }}
+                  key: consumer-secret
+            {{- if .Values.auth.enabled }}
+            - name: MCP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "woo-mcp.authSecret" . }}
+                  key: token
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

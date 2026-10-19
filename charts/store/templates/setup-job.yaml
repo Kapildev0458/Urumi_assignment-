@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "store.fullname" . }}-setup
+  labels:
+    {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: setup
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  setup.sh: |
+    {{- .Files.Get "files/setup.sh" | nindent 4 }}
+  api-key.php: |
+    {{- .Files.Get "files/api-key.php" | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "store.fullname" . }}-setup
+  labels:
+    {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: setup
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    # Keep a failed job around for `kubectl logs`; replace it on the next install/upgrade.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.setup.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.setup.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "store.labels" . | nindent 8 }}
+        app.kubernetes.io/component: setup
+    spec:
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 33
+      initContainers:
+        # The CLI image has no WordPress core; copy it (same version as the site) from the
+        # WordPress image, plus the env-driven wp-config that the site itself uses.
+        - name: wordpress-core
+          image: "{{ .Values.wordpress.image.repository }}:{{ .Values.wordpress.image.tag }}"
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - cp -a /usr/src/wordpress/. /var/www/html/ && cp /usr/src/wordpress/wp-config-docker.php /var/www/html/wp-config.php
+          resources:
+            {{- toYaml .Values.setup.resources | nindent 12 }}
+          volumeMounts:
+            - name: core
+              mountPath: /var/www/html
+      containers:
+        - name: setup
+          image: "{{ .Values.setup.image.repository }}:{{ .Values.setup.image.tag }}"
+          imagePullPolicy: {{ .Values.setup.image.pullPolicy }}
+          command: ["sh", "/scripts/setup.sh"]
+          # uid 33 = www-data in the Apache image, so files WP-CLI writes stay writable by WordPress.
+          securityContext:
+            runAsUser: 33
+            runAsGroup: 33
+            allowPrivilegeEscalation: false
+          env:
+            {{- include "store.wordpressEnv" . | nindent 12 }}
+            - name: HOME
+              value: /tmp
+            - name: SITE_URL
+              value: {{ include "store.url" . | quote }}
+            - name: WP_SERVICE_URL
+              value: "http://{{ include "store.wordpressService" . }}"
+            - name: STORE_TITLE
+              value: {{ .Values.store.title | quote }}
+            - name: STORE_CURRENCY
+              value: {{ .Values.store.currency | quote }}
+            - name: STORE_COUNTRY
+              value: {{ .Values.store.country | quote }}
+            - name: SAMPLE_PRODUCT
+              value: {{ .Values.store.sampleProduct | quote }}
+            - name: WOO_VERSION
+              value: {{ .Values.woocommerce.version | quote }}
+            - name: WP_ADMIN_USER
+              value: {{ .Values.wordpress.admin.user | quote }}
+            - name: WP_ADMIN_EMAIL
+              value: {{ .Values.wordpress.admin.email | quote }}
+            - name: WP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "store.credentialsSecret" . }}
+                  key: wp-admin-password
+            - name: WOO_CONSUMER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "store.wooApiSecret" . }}
+                  key: consumer-key
+            - name: WOO_CONSUMER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "store.wooApiSecret" . }}
+                  key: consumer-secret
+          resources:
+            {{- toYaml .Values.setup.resources | nindent 12 }}
+          volumeMounts:
+            - name: core
+              mountPath: /var/www/html
+            # Same volume as the WordPress pod: plugins/themes installed here are what it serves.
+            - name: wp-content
+              mountPath: /var/www/html/wp-content
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: core
+          emptyDir: {}
+        - name: wp-content
+          persistentVolumeClaim:
+            claimName: {{ include "store.fullname" . }}-wp-content
+        - name: scripts
+          configMap:
+            name: {{ include "store.fullname" . }}-setup

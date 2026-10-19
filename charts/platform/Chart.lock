@@ -1,0 +1,9 @@
+dependencies:
+- name: store
+  repository: file://../store
+  version: 0.1.0
+- name: woo-mcp
+  repository: file://../woo-mcp
+  version: 0.1.0
+digest: sha256:1012d9d8c008b8f0a297b62dc1d849a10386e0cac7e50fc2ee4f9f4e905a6da5
+generated: "2026-10-15T17:42:09.4620522+05:30"

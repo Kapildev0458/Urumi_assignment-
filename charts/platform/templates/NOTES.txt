@@ -1,0 +1,7 @@
+Urumi platform "{{ .Release.Name }}" deployed to namespace {{ .Release.Namespace }}.
+{{- if .Values.store.enabled }}
+
+Store:     http{{ if .Values.store.ingress.tls.enabled }}s{{ end }}://{{ .Values.store.ingress.host | default (printf "store.%s" .Values.global.domain) }}
+Admin password:
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-store-credentials -o jsonpath="{.data.wp-admin-password}" | base64 -d
+{{- end }}

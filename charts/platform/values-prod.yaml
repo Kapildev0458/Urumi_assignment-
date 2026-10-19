@@ -1,0 +1,44 @@
+# Production-like VPS running k3s. Same charts as local; only these values differ.
+# Replace example.com with your domain (or <vps-ip>.nip.io) and point DNS at the VPS.
+global:
+  domain: example.com
+
+store:
+  ingress:
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls:
+      enabled: true
+  store:
+    sampleProduct: false
+  # woocommerce.version is pinned in charts/store/values.yaml for every environment.
+  wordpress:
+    admin:
+      email: admin@example.com
+    persistence:
+      storageClass: local-path
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 384Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+  mariadb:
+    persistence:
+      storageClass: local-path
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 384Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+
+woo-mcp:
+  image:
+    # The VPS has no k3d registry; push the same image to a real registry (or `k3s ctr images import`).
+    repository: ghcr.io/your-user/urumi-woo-mcp

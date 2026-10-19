@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "store.fullname" . }}-wp-content
+  labels:
+    {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  accessModes: [{{ .Values.wordpress.persistence.accessMode | quote }}]
+  {{- with .Values.wordpress.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.wordpress.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "store.wordpressService" . }}
+  labels:
+    {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  selector:
+    {{- include "store.selectorLabels" (dict "ctx" . "component" "wordpress") | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "store.wordpressService" . }}
+  labels:
+    {{- include "store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  replicas: 1
+  # ReadWriteOnce volume: the old pod must release it before the new one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "store.selectorLabels" (dict "ctx" . "component" "wordpress") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "store.labels" . | nindent 8 }}
+        app.kubernetes.io/component: wordpress
+      annotations:
+        # Roll the pod when generated config changes.
+        checksum/config: {{ include "store.wordpressEnv" . | sha256sum }}
+    spec:
+      securityContext:
+        fsGroup: 33
+      containers:
+        - name: wordpress
+          image: "{{ .Values.wordpress.image.repository }}:{{ .Values.wordpress.image.tag }}"
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            {{- include "store.wordpressEnv" . | nindent 12 }}
+          # The entrypoint copies WordPress core into place on start; give it time.
+          startupProbe:
+            httpGet:
+              path: /wp-includes/images/blank.gif
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          # PHP + database path (a 302 to install.php before setup still counts as ready).
+          readinessProbe:
+            httpGet:
+              path: /wp-login.php
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Apache only, so a database outage does not restart WordPress in a loop.
+          livenessProbe:
+            httpGet:
+              path: /wp-includes/images/blank.gif
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.wordpress.resources | nindent 12 }}
+          volumeMounts:
+            - name: wp-content
+              mountPath: /var/www/html/wp-content
+      volumes:
+        - name: wp-content
+          persistentVolumeClaim:
+            claimName: {{ include "store.fullname" . }}-wp-content

@@ -1,0 +1,17 @@
+apiVersion: v2
+name: platform
+description: Urumi - WooCommerce hosting with a team MCP gateway (umbrella chart).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+# Each component is its own chart so it can also be installed alone (e.g. one store per
+# namespace for multi-store provisioning). Run `helm dependency update` after changing these.
+dependencies:
+  - name: store
+    version: 0.1.0
+    repository: file://../store
+    condition: store.enabled
+  - name: woo-mcp
+    version: 0.1.0
+    repository: file://../woo-mcp
+    condition: woo-mcp.enabled

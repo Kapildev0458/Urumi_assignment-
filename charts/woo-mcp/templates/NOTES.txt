@@ -1,0 +1,5 @@
+WooCommerce MCP server: http://{{ include "woo-mcp.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/mcp
+(ClusterIP only; the NetworkPolicy admits only the gateway.)
+{{- if .Values.auth.enabled }}
+Bearer token: kubectl -n {{ .Release.Namespace }} get secret {{ include "woo-mcp.authSecret" . }} -o jsonpath="{.data.token}"
+{{- end }}

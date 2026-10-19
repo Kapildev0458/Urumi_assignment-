@@ -1,0 +1,9 @@
+apiVersion: v2
+name: store
+description: A WooCommerce store (WordPress + MariaDB) with persistent storage and automated setup.
+type: application
+version: 0.1.0
+appVersion: "7.1.3"
+keywords:
+  - wordpress
+  - woocommerce

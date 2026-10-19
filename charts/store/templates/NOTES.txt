@@ -1,0 +1,10 @@
+WooCommerce store "{{ .Values.store.title }}"
+
+  Storefront: {{ include "store.url" . }}
+  Admin:      {{ include "store.url" . }}/wp-admin   (user: {{ .Values.wordpress.admin.user }})
+
+Admin password:
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "store.credentialsSecret" . }} -o jsonpath="{.data.wp-admin-password}" | base64 -d
+
+Setup job logs (installs WooCommerce, enables Cash on delivery, registers the MCP API key):
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "store.fullname" . }}-setup
