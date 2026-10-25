@@ -15,9 +15,8 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
   multi-step prompts misbehave). Key is in the non-Helm Secret `urumi-gateway-llm`.
 - **Full DoD verified end to end with two users** by `scripts/dod-check.ps1` (0 failures): it runs
   every step through the same APIs the dashboard and MCP clients use. Re-run it before recording.
-- **Still to do by the user:**
-  1. Record the demo (by hand in the browser + Claude Code as user B, following the README demo script).
-  2. Delete the two Anthropic keys that were pasted into the chat (console → API keys).
+- Demo video recorded; the leaked Anthropic keys are deleted (chat still works on the cluster's key).
+- **Still to do by the user:** submit the GitHub repo link + demo video before 2026-10-26.
 - Skipped on purpose (optional, no time): VPS deploy (bonus 1), tool permissions (bonus 2).
 - Admin login: `admin@urumi.local`, password from
   `kubectl -n urumi get secret urumi-gateway-secrets -o jsonpath="{.data.admin-password}"` (base64).
