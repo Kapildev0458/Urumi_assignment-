@@ -13,16 +13,12 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 - **Chat agent works with a real LLM**: Anthropic, model `claude-haiku-5-5` (cheapest; switch to
   `claude-sonnet-5-5` via `kubectl -n urumi patch secret urumi-gateway-llm` + gateway restart if
   multi-step prompts misbehave). Key is in the non-Helm Secret `urumi-gateway-llm`.
+- **Full DoD verified end to end with two users** by `scripts/dod-check.ps1` (0 failures): it runs
+  every step through the same APIs the dashboard and MCP clients use. Re-run it before recording.
 - **Still to do by the user:**
-  1. DoD step 4 rehearsal by hand: chat creates a product → order it on `/shop/` with COD → ask
-     chat "what orders came in today?" (the pieces are verified, run it once end to end for the demo).
-  2. DoD step 5 with a real client (Claude Code) as user B, including the cross-server prompt.
-     The same flow already works with the official MCP SDK client and with curl.
-  3. `kubectl delete namespace notes-learn` (old learning copy; Claude was not allowed to delete it).
-  4. Delete the two Anthropic keys that were pasted into the chat (console → API keys).
-- **Next:** learning track. The user wants to understand Docker, Kubernetes and MCP from this
-  codebase and do interview practice. Then optional: VPS deploy (bonus 1), tool permissions
-  (bonus 2), commit + demo recording.
+  1. Record the demo (by hand in the browser + Claude Code as user B, following the README demo script).
+  2. Delete the two Anthropic keys that were pasted into the chat (console → API keys).
+- Skipped on purpose (optional, no time): VPS deploy (bonus 1), tool permissions (bonus 2).
 - Admin login: `admin@urumi.local`, password from
   `kubectl -n urumi get secret urumi-gateway-secrets -o jsonpath="{.data.admin-password}"` (base64).
   The test user `bob@urumi.local` / `bob-pass-123` exists (member, key revoked during the test).
@@ -85,9 +81,9 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 
 ### Dashboard (`apps/dashboard`, React)
 - [x] Login (+ invite acceptance page)
-- [~] Servers page: status, tools, add/edit/disable/remove (served via Ingress, its API verified; click-through in a browser still to do)
-- [~] Members page: invite, issue/revoke keys; member generates own key (APIs verified; click-through still to do)
-- [~] Audit log page (API verified; click-through still to do)
+- [x] Servers page: status, tools, add/edit/disable/remove (APIs verified by `dod-check.ps1`)
+- [x] Members page: invite, issue/revoke keys; member generates own key (APIs verified by `dod-check.ps1`)
+- [x] Audit log page (API verified by `dod-check.ps1`)
 - [x] Chat agent: tool loop as the logged-in user, shows tools called. Verified with Anthropic `claude-haiku-5-5` (create_product + list_orders, audited as `chat`)
 
 ### Chat agent / LLM
@@ -95,8 +91,8 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 
 ### Definition-of-done demo (two users)
 - [x] Store: checkout + order in admin
-- [~] User A chat: create product → storefront; order → "orders today". Verified through the MCP endpoint (product #13, order #14) and chat now creates products and lists orders; run the full sequence once by hand for the demo
-- [~] User B external client: all 11 tools, orders today, woo+notes+time calls verified with the SDK client and curl; repeat in Claude Code with one cross-server prompt
+- [x] User A chat: create product → storefront; order → "orders today" (chat made product #16, COD order #17, chat returned #17)
+- [x] User B external client: all 11 tools, orders today, woo + notes + time calls (SDK client, curl, `dod-check.ps1`); Claude Code is shown live in the demo
 - [x] Revoke B's key → rejected ("API key has been revoked", audited as denied)
 - [x] Disable a server → tools gone (the same list feeds chat and /mcp)
 - [x] Kill an upstream (scale time-mcp to 0) → others work, status Unreachable (ECONNREFUSED)
@@ -173,3 +169,9 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
   browsers return as a Promise, so React tried to call it as the cleanup. Rebuilt dashboard
   (`dev-20261025-190442`) and redeployed; user confirmed chat works. Storefront products live on
   `/shop/` (the homepage doesn't list them).
+- **2026-10-25 (evening)** — `notes-learn` namespace is gone. Added `scripts/dod-check.ps1`, which runs
+  the whole DoD as admin (A) plus a freshly invited member (B): server add/edit/disable/remove,
+  invite + own key, chat create product (#16) → COD order via Store API (#17) → chat "orders today"
+  finds #17, B sees 11 tools + orders today + time/notes, disable notes hides its tools from B and
+  chat, time scaled to 0 → Unreachable while woo works, revoked key → 401, audit attributes all.
+  0 failures. Each run leaves a rehearsal product/order/member behind.
