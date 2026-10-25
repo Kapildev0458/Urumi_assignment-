@@ -1,0 +1,9 @@
+Dashboard:        {{ include "gateway.publicUrl" . }}/
+Gateway MCP URL:  {{ include "gateway.publicUrl" . }}/mcp   (header: Authorization: Bearer <your API key>)
+
+First admin: {{ .Values.admin.email }}
+Password:    kubectl -n {{ .Release.Namespace }} get secret {{ include "gateway.secret" . }} -o jsonpath="{.data.admin-password}"   (base64)
+
+Chat agent LLM (optional, add when you have a key, then restart the gateway):
+  kubectl -n {{ .Release.Namespace }} create secret generic {{ include "gateway.llmSecret" . }} --from-literal=provider=anthropic --from-literal=api-key=<key>
+  kubectl -n {{ .Release.Namespace }} rollout restart deployment {{ include "gateway.fullname" . }}

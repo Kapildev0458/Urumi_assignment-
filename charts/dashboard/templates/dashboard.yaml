@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dashboard.fullname" . }}
+  labels:
+    {{- include "dashboard.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "dashboard.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dashboard.fullname" . }}
+  labels:
+    {{- include "dashboard.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "dashboard.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dashboard.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      # uid 101 is the nginx user of nginx-unprivileged.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dashboard
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "dashboard.fullname" . }}
+  labels:
+    {{- include "dashboard.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ include "dashboard.host" . }}
+      secretName: {{ .Values.ingress.tls.secretName | default "app-tls" }}
+  {{- end }}
+  rules:
+    - host: {{ include "dashboard.host" . }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dashboard.fullname" . }}
+                port:
+                  name: http
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+# Only the ingress controller serves the dashboard.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "dashboard.fullname" . }}
+  labels:
+    {{- include "dashboard.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "dashboard.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressControllerNamespace }}
+      ports:
+        - port: 8080
+{{- end }}

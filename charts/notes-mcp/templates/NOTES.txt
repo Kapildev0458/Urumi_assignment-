@@ -1,0 +1,5 @@
+Notes MCP server: http://{{ include "notes-mcp.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/mcp
+(ClusterIP only; the NetworkPolicy admits only the gateway. Notes live on PVC {{ include "notes-mcp.fullname" . }}-data.)
+{{- if .Values.auth.enabled }}
+Bearer token: kubectl -n {{ .Release.Namespace }} get secret {{ include "notes-mcp.authSecret" . }} -o jsonpath="{.data.token}"
+{{- end }}

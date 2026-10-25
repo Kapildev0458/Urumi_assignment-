@@ -1,3 +1,4 @@
+# Build: docker build -t localhost:5000/urumi/notes-mcp:<tag> apps/notes-mcp
 # ===== Stage 1: the kitchen (build the code) =====
 FROM node:20-alpine AS build
 WORKDIR /app

@@ -7,6 +7,8 @@ param(
     [string]$Registry = 'localhost:5000/urumi'
 )
 . "$PSScriptRoot\lib.ps1"
+# Through "powershell -File", "-Only a,b" arrives as the single string "a,b".
+$Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
 $tag = 'dev-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
 $valuesFile = Join-Path $RepoRoot 'charts\platform\values-images.yaml'

@@ -42,3 +42,41 @@ woo-mcp:
   image:
     # The VPS has no k3d registry; push the same image to a real registry (or `k3s ctr images import`).
     repository: ghcr.io/your-user/urumi-woo-mcp
+
+notes-mcp:
+  image:
+    repository: ghcr.io/your-user/urumi-notes-mcp
+  persistence:
+    storageClass: local-path
+    size: 1Gi
+
+time-mcp:
+  image:
+    repository: ghcr.io/your-user/urumi-time-mcp
+
+gateway:
+  image:
+    repository: ghcr.io/your-user/urumi-gateway
+  replicas: 2
+  admin:
+    email: admin@example.com
+  ingress:
+    # cert-manager issues app-tls once, from this Ingress; the dashboard Ingress reuses the Secret.
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls:
+      enabled: true
+      secretName: app-tls
+  database:
+    persistence:
+      storageClass: local-path
+      size: 5Gi
+
+dashboard:
+  image:
+    repository: ghcr.io/your-user/urumi-dashboard
+  replicas: 2
+  ingress:
+    tls:
+      enabled: true
+      secretName: app-tls

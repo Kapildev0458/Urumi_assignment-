@@ -7,11 +7,11 @@ MCP server through one endpoint. Same Helm charts locally (k3d) and on a VPS (k3
 ## Repository layout
 
 ```
-apps/          application source: woo-mcp (done); notes-mcp, gateway, dashboard [upcoming]
-charts/        Helm charts: umbrella "platform" (values-local/prod) + "store", "woo-mcp"
+apps/          woo-mcp, notes-mcp, time-mcp (upstream MCP servers), gateway (backend), dashboard (React)
+charts/        Helm charts: umbrella "platform" (values-local/prod) + one chart per component
 k3d/           local cluster definition + ingress smoke test
-scripts/       PowerShell helpers to create, check and tear down the cluster
-docs/          architecture and design decisions                             [upcoming]
+scripts/       PowerShell helpers: prerequisites, cluster up/down, build images, deploy
+docs/          brief (ASSIGNMENT.md) and design (ARCHITECTURE.md)
 ```
 
 ## Local environment
@@ -81,8 +81,9 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1                    #
 powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Environment prod  # VPS (values-prod.yaml)
 ```
 
-`charts/platform` is an umbrella chart; each component (`charts/store`, later the MCP server,
-gateway and dashboard) is its own chart so it can also be installed alone.
+`charts/platform` is an umbrella chart. Each component is its own chart, so it can also be
+installed alone: `store`, `woo-mcp`, `notes-mcp`, `time-mcp`, `gateway` (with its PostgreSQL)
+and `dashboard`.
 
 ## Store (`charts/store`)
 
@@ -166,6 +167,156 @@ Develop and test locally (no cluster needed):
 ```powershell
 cd apps\woo-mcp; npm install; npm test        # unit tests (OAuth signing, date ranges)
 ```
+
+## Notes MCP server (`apps/notes-mcp`, `charts/notes-mcp`)
+
+A second self-written upstream server: shared team notes. Same stack and shape as woo-mcp
+(Streamable HTTP, stateless, `POST /mcp`).
+
+| Tool | What it does |
+|---|---|
+| `add_note` (title, text) | Saves a note with a short id and timestamp |
+| `list_notes` (optional search) | Newest first, optional case-insensitive word filter |
+| `delete_note` (id) | Deletes one note; unknown id is a tool error (`isError: true`) |
+
+- **Storage:** one JSON file (`NOTES_FILE=/data/notes.json`) on the `<release>-notes-mcp-data`
+  PVC. Writes go to a temp file and are renamed, so a crash never leaves a half-written file. The
+  PVC has `helm.sh/resource-policy: keep`, so uninstalling the release keeps the notes.
+- **One writer:** a ReadWriteOnce volume and a single file, so `replicas: 1` with the `Recreate`
+  strategy (the old pod stops before the new one starts).
+- **Probes:** `/healthz` (process alive) and `/readyz` (data folder writable, notes file parses).
+- **Isolation:** same as woo-mcp: ClusterIP only, NetworkPolicy admits only the gateway, bearer
+  token in `<release>-notes-mcp-auth`, non-root, read-only root filesystem.
+
+## Time MCP server (`apps/time-mcp`, `charts/time-mcp`)
+
+The third upstream server: stateless and dependency-free, so it can run any number of replicas.
+Same isolation as the other two (ClusterIP, gateway-only NetworkPolicy, bearer token).
+
+| Tool | What it does |
+|---|---|
+| `current_time` (optional timezone) | Date, time, weekday and UTC offset in an IANA timezone (default `Asia/Kolkata`) |
+| `convert_time` (ISO time, timezones[]) | One moment shown in several timezones |
+| `date_diff` (from, to) | Minutes, hours and days between two dates |
+
+## Gateway (`apps/gateway`, `charts/gateway`)
+
+Node.js + TypeScript, official MCP SDK, PostgreSQL. Design details and trade-offs are in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). In short:
+
+- **One MCP endpoint**, `POST http://app.<domain>/mcp` (Streamable HTTP, stateless). The caller
+  sends `Authorization: Bearer <personal API key>`.
+  - `tools/list` returns the tools of every enabled, reachable server.
+  - `tools/call` is routed to the right server, using that server's stored credential.
+- **Name collisions:** every tool is exposed as `<server>__<tool>`, e.g. `woo__list_orders` or
+  `notes__add_note`.
+  - Server names are unique slugs (`[a-z][a-z0-9-]*`, so they can't contain `__`), and the first
+    `__` always splits a name unambiguously.
+  - So two servers that both have `search` become `notes__search` and `docs__search`.
+  - Each description also starts with `[server]`.
+- **Registry:** admins add, edit, disable and remove servers (URL + optional bearer token or
+  custom header).
+  - Credentials are encrypted at rest (AES-256-GCM, key in the `<release>-gateway-secrets` Secret).
+  - They are decrypted only to call the upstream. The API only ever says `hasCredential: true`.
+- **Status:**
+  - Every 15 s the gateway connects to each enabled server and lists its tools, with a 5 s timeout.
+  - The status is Connected, Unreachable (with the reason) or Disabled.
+  - A dead or slow server is skipped in `tools/list`. Calls to it fail fast with a clear error;
+    other servers are unaffected.
+  - Calls time out after 30 s.
+- **Users and keys:**
+  - There are two roles, admin and member.
+  - Admins invite people with a one-time invite link (no mail server is needed).
+  - Every user can generate their own API keys; admins can issue keys for anyone and revoke any key.
+  - Keys are shown once and stored only as a SHA-256 hash. They are 256-bit random, so a fast
+    hash is safe. Passwords use scrypt.
+- **Audit log:** every tool call is recorded with user, via (`mcp` or `chat`), server, tool, time,
+  duration and outcome (`success`, `error` or `denied`).
+  - Requests with a revoked key are recorded as `denied` under the key's owner.
+- **Seeding:** on first start the gateway creates the admin (`admin.email`, generated password)
+  and registers woo, notes and time.
+  - The tokens are read from each server's generated auth Secret, so nobody types or stores them.
+  - Each seed is applied only once, so an admin can later edit or remove the servers.
+
+```powershell
+kubectl -n urumi get secret urumi-gateway-secrets -o jsonpath="{.data.admin-password}"   # base64; login: admin@urumi.local
+cd apps\gateway; npm install; npm test      # unit tests (encryption, hashing, keys)
+```
+
+## Dashboard (`apps/dashboard`, `charts/dashboard`)
+
+React 19 + Vite, built into static files and served by unprivileged nginx. The Ingress for
+`app.<domain>` sends `/` to the dashboard and `/api`, `/mcp` to the gateway (two Ingress objects on
+the same host). Pages:
+
+- **Servers:** status, tools, add/edit/disable/remove.
+- **Chat**
+- **My API keys:** generate or revoke, plus copy-paste setup for Claude Code, Cursor and Inspector.
+- **Members** (admin): invite, issue or revoke keys, change role, disable a user.
+- **Audit log**
+
+Sessions are httpOnly `SameSite=Lax` cookies. Every state-changing API call must also carry
+`X-Requested-With: urumi`, which a cross-site page cannot send without a CORS preflight.
+
+## Chat agent
+
+The tool loop runs **inside the gateway, as the logged-in user**. It uses the same aggregated
+tool list as `/mcp`, and every call goes through the same routing code, so it shows up in the audit
+log under that user with `via = chat`. The chat page shows each tool the model called, with its
+arguments and result.
+
+Providers:
+- `anthropic`: Claude, via the official Anthropic SDK. Default model `claude-opus-5-5`.
+- `openai`: any OpenAI-compatible Chat Completions API: OpenAI, OpenRouter, Groq, Gemini's OpenAI
+  endpoint, or a local Ollama.
+
+The key is never in values files. Put it in a Secret that Helm does not manage, then restart the
+gateway:
+
+```powershell
+# Claude
+kubectl -n urumi create secret generic urumi-gateway-llm --from-literal=provider=anthropic --from-literal=api-key=<key>
+# ...or any OpenAI-compatible API (example: Groq)
+kubectl -n urumi create secret generic urumi-gateway-llm --from-literal=provider=openai --from-literal=api-key=<key> `
+  --from-literal=base-url=https://api.groq.com/openai/v1 --from-literal=model=llama-3.3-70b-versatile
+kubectl -n urumi rollout restart deployment urumi-gateway
+```
+
+Without the Secret, everything else works and the chat page says "LLM not configured".
+
+## Demo: the Definition of Done, step by step
+
+All URLs are local; see "Local domains". Use two browsers (or one private window) for the two
+users.
+
+1. **Store:** open `http://store.127.0.0.1.nip.io`, add a product to the cart, check out with
+   *Cash on delivery*. The order shows in `wp-admin` → WooCommerce → Orders.
+2. **Admin (user A):** log in at `http://app.127.0.0.1.nip.io` as `admin@urumi.local`.
+   - **Servers** shows woo, notes and time as Connected, with their tools.
+   - To show "add by URL": remove `time`, then add it again with URL `http://urumi-time-mcp/mcp`,
+     type *Bearer*, and the token from
+     `kubectl -n urumi get secret urumi-time-mcp-auth -o jsonpath="{.data.token}"` (base64-decode it).
+3. **Invite user B:** **Members** → invite `bob@example.com` → open the link in the other browser
+   and set a password. B opens **My API keys** → *Generate key*.
+4. **Chat as A** (needs the LLM Secret):
+   - *"Create a product called Blue Mug priced at 12.50"*. The product is on the storefront.
+   - Order it on the storefront by hand, then ask *"What orders came in today?"*.
+5. **External client as B** (Claude Code):
+   - `claude mcp add --transport http urumi http://app.127.0.0.1.nip.io/mcp --header "Authorization: Bearer <B's key>"`
+   - `/mcp` lists all tools.
+   - Ask *"What orders came in today?"*.
+   - Cross-server: *"Save a note summarising today's orders and include the current time in Asia/Kolkata"*
+     (woo + notes + time).
+6. **Revoke:** as A, **Members** → revoke B's key. B's next call fails with "API key has been revoked".
+7. **Disable:** **Servers** → *Disable* notes. Its tools are gone from the chat and from B's
+   `tools/list`.
+8. **Kill an upstream:** `kubectl -n urumi scale deploy/urumi-time-mcp --replicas=0`.
+   - Within 15 s (or press *Check*) time shows **Unreachable** (`ECONNREFUSED`); woo and notes keep
+     working.
+   - Bring it back with `--replicas=1`.
+   - `kubectl delete pod` works too, but the Deployment replaces the pod within seconds.
+9. **Audit log:** every call above, with user, via, server, tool, duration and outcome, and B's
+   rejected call as `denied`.
 
 Build and push all images to the k3d registry, then deploy:
 

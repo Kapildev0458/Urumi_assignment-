@@ -15,3 +15,19 @@ dependencies:
     version: 0.1.0
     repository: file://../woo-mcp
     condition: woo-mcp.enabled
+  - name: notes-mcp
+    version: 0.1.0
+    repository: file://../notes-mcp
+    condition: notes-mcp.enabled
+  - name: time-mcp
+    version: 0.1.0
+    repository: file://../time-mcp
+    condition: time-mcp.enabled
+  - name: gateway
+    version: 0.1.0
+    repository: file://../gateway
+    condition: gateway.enabled
+  - name: dashboard
+    version: 0.1.0
+    repository: file://../dashboard
+    condition: dashboard.enabled

@@ -1,0 +1,79 @@
+# Default values for the gateway chart (backend + its PostgreSQL).
+
+global:
+  domain: 127.0.0.1.nip.io
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: localhost:5000/urumi/gateway
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# Stateless apart from the database, so more than one replica works.
+replicas: 1
+
+# Dashboard + API + MCP all live on one host: "/" -> dashboard chart, "/api" and "/mcp" -> here.
+ingress:
+  enabled: true
+  className: traefik
+  # Full host; when empty it is "<hostPrefix>.<global.domain>".
+  host: ""
+  hostPrefix: app
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+# First admin. The password is generated into the <fullname>-secrets Secret (key admin-password).
+admin:
+  email: admin@example.com
+
+# MCP servers registered on first start (each only once, so admins may edit or remove them later).
+# url defaults to http://<release>-<service>/mcp; the bearer token is read from the Secret
+# <release>-<authSecret> (key: token).
+seedServers: []
+#  - name: woo
+#    service: woo-mcp
+#    authSecret: woo-mcp-auth
+
+upstream:
+  listTimeoutMs: 5000
+  callTimeoutMs: 30000
+  refreshIntervalMs: 15000
+
+# Chat agent LLM. The API key lives in a Secret that is NOT managed by Helm, so it never appears in
+# values files. Create it when you have a key (see README); without it the chat page says so.
+llm:
+  # Default: <fullname>-llm. Keys: provider (anthropic|openai), api-key, and optional model, base-url.
+  secretName: ""
+
+database:
+  image:
+    repository: postgres
+    tag: 17-alpine
+    pullPolicy: IfNotPresent
+  persistence:
+    storageClass: ""
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+networkPolicy:
+  enabled: true
+  # Namespace of the ingress controller (Traefik in k3s) that may reach the gateway.
+  ingressControllerNamespace: kube-system
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: "1"
+    memory: 384Mi

@@ -1,0 +1,2 @@
+Time MCP server: http://{{ include "time-mcp.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/mcp
+(ClusterIP only; the NetworkPolicy admits only the gateway.)

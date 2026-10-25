@@ -9,3 +9,27 @@ store:
 
 woo-mcp:
   enabled: true
+
+notes-mcp:
+  enabled: true
+
+time-mcp:
+  enabled: true
+
+gateway:
+  enabled: true
+  # Registered on first start; WooCommerce is the first server. Tokens come from each chart's
+  # generated <release>-<chart>-auth Secret, so no credential is ever typed or stored in values.
+  seedServers:
+    - name: woo
+      service: woo-mcp
+      authSecret: woo-mcp-auth
+    - name: notes
+      service: notes-mcp
+      authSecret: notes-mcp-auth
+    - name: time
+      service: time-mcp
+      authSecret: time-mcp-auth
+
+dashboard:
+  enabled: true

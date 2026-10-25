@@ -1,6 +1,6 @@
 {
   "name": "@urumi/notes-mcp",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "main": "dist/server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -10,7 +10,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Team notes MCP server (Streamable HTTP) for the Urumi platform.",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

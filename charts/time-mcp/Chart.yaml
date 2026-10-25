@@ -1,0 +1,6 @@
+apiVersion: v2
+name: time-mcp
+description: Self-written time and date MCP server (Streamable HTTP), reachable only from the gateway.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -5,5 +5,17 @@ dependencies:
 - name: woo-mcp
   repository: file://../woo-mcp
   version: 0.1.0
-digest: sha256:1012d9d8c008b8f0a297b62dc1d849a10386e0cac7e50fc2ee4f9f4e905a6da5
-generated: "2026-10-15T17:42:09.4620522+05:30"
+- name: notes-mcp
+  repository: file://../notes-mcp
+  version: 0.1.0
+- name: time-mcp
+  repository: file://../time-mcp
+  version: 0.1.0
+- name: gateway
+  repository: file://../gateway
+  version: 0.1.0
+- name: dashboard
+  repository: file://../dashboard
+  version: 0.1.0
+digest: sha256:ce35e95b12ce19e26d98d3b30e6f66d34258e90e28b4965f5906c88cc5c1e188
+generated: "2026-10-20T13:11:00.9372073+05:30"

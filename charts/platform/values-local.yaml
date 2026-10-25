@@ -20,3 +20,26 @@ woo-mcp:
   image:
     # Built and pushed by scripts\build-images.ps1 to the k3d registry.
     repository: localhost:5000/urumi/woo-mcp
+
+notes-mcp:
+  image:
+    repository: localhost:5000/urumi/notes-mcp
+  persistence:
+    storageClass: local-path
+
+time-mcp:
+  image:
+    repository: localhost:5000/urumi/time-mcp
+
+gateway:
+  image:
+    repository: localhost:5000/urumi/gateway
+  admin:
+    email: admin@urumi.local
+  database:
+    persistence:
+      storageClass: local-path
+
+dashboard:
+  image:
+    repository: localhost:5000/urumi/dashboard

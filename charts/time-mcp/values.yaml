@@ -1,0 +1,38 @@
+# Default values for the time MCP server chart.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: localhost:5000/urumi/time-mcp
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# Stateless, so any number of replicas works.
+replicas: 1
+
+# Used when a tool call gives no timezone.
+defaultTimezone: Asia/Kolkata
+
+# Shared bearer token the gateway must send. Generated once and kept across upgrades unless
+# existingSecret (key: token) is set. The gateway registers this server with that credential.
+auth:
+  enabled: true
+  existingSecret: ""
+
+service:
+  port: 80
+
+networkPolicy:
+  enabled: true
+  # Only pods matching these labels (in the release namespace) may call the MCP server.
+  allowedClients:
+    - app.kubernetes.io/component: gateway
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 48Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
