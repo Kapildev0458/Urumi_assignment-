@@ -6,7 +6,13 @@ and add a line to the log.
 
 Legend: `[x]` done and verified in the cluster · `[~]` written but not yet verified · `[ ]` not started
 
-## Current status (2026-10-25)
+## Current status (2026-10-26)
+
+- **Gap review against the brief (2026-10-26):** every mandatory requirement is in the code.
+  Open small fixes: (1) README "Deploying" skips `build-images.ps1` (it sits after the demo
+  section), so a fresh clone fails; (2) learning leftovers `apps/notes-mcp/k8s-learn.yaml` and
+  `apps/notes-mcp/notes.json` (gitignored but tracked) are still in the repo; (3) README demo
+  step 7 should say Claude Code needs `/mcp` → reconnect to drop a disabled server's tools.
 
 - **The whole core platform is built and deployed in the local cluster** (namespace `urumi`):
   store, woo-mcp, notes-mcp, time-mcp, gateway + PostgreSQL, dashboard.
@@ -174,3 +180,9 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
   finds #17, B sees 11 tools + orders today + time/notes, disable notes hides its tools from B and
   chat, time scaled to 0 → Unreachable while woo works, revoked key → 401, audit attributes all.
   0 failures. Each run leaves a rehearsal product/order/member behind.
+- **2026-10-26** — Gap review of code, charts and docs against `docs/ASSIGNMENT.md`. Mandatory
+  items all present (probes + limits on every workload, ClusterIP-only MCP servers, PVCs, no
+  secrets in git history, gateway CRUD/timeouts/collision scheme/encrypted creds, roles, hashed
+  keys, audit, chat as user); `helm template` renders for local and prod; GitHub repo is public.
+  Cluster was stopped during the review (not re-run). Remaining: 3 small fixes (see Current
+  status) and the submission. Bonus multi-store and stand-outs 1–5, 7, 8 not attempted.

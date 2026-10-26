@@ -76,10 +76,17 @@ real domain (see `values-prod.yaml`).
 
 ## Deploying
 
+From a fresh clone, after `cluster-up.ps1`: build and push the images to the k3d registry, then
+deploy. The first deploy takes several minutes (WordPress and WooCommerce install in a Job).
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1                    # local (values-local.yaml)
-powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Environment prod  # VPS (values-prod.yaml)
+powershell -ExecutionPolicy Bypass -File scripts\build-images.ps1                # writes charts\platform\values-images.yaml
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1                      # local (values-local.yaml)
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Environment prod    # VPS (values-prod.yaml)
 ```
+
+The chat agent also needs an LLM key in a Secret; see "Chat agent" below. Everything else works
+without it.
 
 `charts/platform` is an umbrella chart. Each component is its own chart, so it can also be
 installed alone: `store`, `woo-mcp`, `notes-mcp`, `time-mcp`, `gateway` (with its PostgreSQL)
@@ -309,7 +316,9 @@ users.
      (woo + notes + time).
 6. **Revoke:** as A, **Members** → revoke B's key. B's next call fails with "API key has been revoked".
 7. **Disable:** **Servers** → *Disable* notes. Its tools are gone from the chat and from B's
-   `tools/list`.
+   `tools/list`. Claude Code keeps the tool list it fetched at connect time, so run `/mcp` →
+   *Reconnect* to see them disappear; calling one directly is rejected right away
+   ("Server 'notes' is disabled").
 8. **Kill an upstream:** `kubectl -n urumi scale deploy/urumi-time-mcp --replicas=0`.
    - Within 15 s (or press *Check*) time shows **Unreachable** (`ECONNREFUSED`); woo and notes keep
      working.
@@ -317,13 +326,6 @@ users.
    - `kubectl delete pod` works too, but the Deployment replaces the pod within seconds.
 9. **Audit log:** every call above, with user, via, server, tool, duration and outcome, and B's
    rejected call as `denied`.
-
-Build and push all images to the k3d registry, then deploy:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-images.ps1   # writes charts\platform\values-images.yaml
-powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
-```
 
 ### Troubleshooting
 
