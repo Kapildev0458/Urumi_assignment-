@@ -43,6 +43,15 @@ upstream:
   callTimeoutMs: 30000
   refreshIntervalMs: 15000
 
+# Per minute, counted in PostgreSQL so the limits hold across replicas. 0 = unlimited.
+rateLimit:
+  mcpPerKey: 120
+  chatPerUser: 10
+
+# Above this many tools, the chat agent gets only gateway__search_tools + gateway__call_tool.
+# MCP clients opt in with /mcp?tools=search.
+toolSearchThreshold: 40
+
 # Chat agent LLM. The API key lives in a Secret that is NOT managed by Helm, so it never appears in
 # values files. Create it when you have a key (see README); without it the chat page says so.
 llm:

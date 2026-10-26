@@ -19,6 +19,8 @@ export function ChatPage({ config }: { config: AppConfig | null }) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [tools, setTools] = useState<{ name: string }[]>([]);
+  /** Search mode: the model gets only gateway__search_tools + gateway__call_tool (for many tools). */
+  const [searchMode, setSearchMode] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,7 +41,10 @@ export function ChatPage({ config }: { config: AppConfig | null }) {
     try {
       // Only text turns are sent back; the tool loop of each turn runs on the gateway.
       const payload = history.filter((m) => !m.error).map(({ role, content }) => ({ role, content }));
-      const res = await api<{ reply: string; steps: ChatStep[] }>('POST', '/chat', { messages: payload });
+      const res = await api<{ reply: string; steps: ChatStep[] }>('POST', '/chat', {
+        messages: payload,
+        ...(searchMode ? { toolMode: 'search' } : {}),
+      });
       setMessages([...history, { role: 'assistant', content: res.reply, steps: res.steps }]);
     } catch (err) {
       setMessages([...history, { role: 'assistant', content: (err as Error).message, error: true }]);
@@ -117,6 +122,10 @@ export function ChatPage({ config }: { config: AppConfig | null }) {
           </button>
         )}
       </form>
+      <label className="perm muted small" title="For many tools: the model searches the catalog, then calls what it found">
+        <input type="checkbox" checked={searchMode} onChange={(e) => setSearchMode(e.target.checked)} /> Tool search mode (give the
+        model 2 meta-tools instead of all {tools.length}; automatic above 40 tools)
+      </label>
     </section>
   );
 }

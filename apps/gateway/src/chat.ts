@@ -5,7 +5,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { Config } from './config.js';
 import { anthropicProvider } from './llm-anthropic.js';
 import { openaiProvider } from './llm-openai.js';
-import { textOf, type Caller, type Upstreams } from './upstreams.js';
+import { META_TOOLS, textOf, type Caller, type Upstreams } from './upstreams.js';
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -37,9 +37,12 @@ export function llmConfigured(config: Config): boolean {
   return config.llm.provider === 'anthropic' || (config.llm.provider === 'openai' && !!config.llm.model);
 }
 
-function systemPrompt(): string {
+function systemPrompt(toolMode: ToolMode): string {
   const today = new Date().toISOString().slice(0, 10);
   return [
+    ...(toolMode === 'search'
+      ? ['There are many tools: first find the right one with gateway__search_tools, then run it with gateway__call_tool.']
+      : []),
     "You are the Urumi team assistant inside the dashboard. Answer using the team's tools.",
     `Tool names are <server>__<tool>; the prefix says which upstream server runs it. Today's date (UTC) is ${today}.`,
     'For questions about store orders "today", call the WooCommerce list_orders tool with date "today" (store timezone).',
@@ -48,24 +51,31 @@ function systemPrompt(): string {
   ].join('\n');
 }
 
+export type ToolMode = 'all' | 'search';
+
 export async function runChat(
   config: Config,
   upstreams: Upstreams,
   caller: Caller,
   history: ChatTurn[],
-): Promise<{ reply: string; steps: ChatStep[] }> {
+  requestedMode?: ToolMode,
+): Promise<{ reply: string; steps: ChatStep[]; toolMode: ToolMode }> {
   const steps: ChatStep[] = [];
+  const all = await upstreams.listTools(caller);
+  // Many tools: hand the model only the two search/call meta-tools instead of the whole catalog.
+  const toolMode: ToolMode = requestedMode ?? (all.length > config.toolSearchThreshold ? 'search' : 'all');
   const runner: ToolRunner = {
-    tools: await upstreams.listTools(caller),
+    tools: toolMode === 'search' ? META_TOOLS : all,
     async run(name, args) {
       const started = Date.now();
       const result = await upstreams.callTool(name, args, caller, 'chat');
-      const text = textOf(result);
-      steps.push({ tool: name, arguments: args, ok: !result.isError, durationMs: Date.now() - started, result: text });
+      // The model gets more of the result than the chat UI shows (search results carry schemas).
+      const text = textOf(result, 8000);
+      steps.push({ tool: name, arguments: args, ok: !result.isError, durationMs: Date.now() - started, result: text.slice(0, 1000) });
       return { text, isError: !!result.isError };
     },
   };
   const provider: Provider = config.llm.provider === 'anthropic' ? anthropicProvider(config) : openaiProvider(config);
-  const reply = await provider({ system: systemPrompt(), history, runner, maxSteps: 10 });
-  return { reply, steps };
+  const reply = await provider({ system: systemPrompt(toolMode), history, runner, maxSteps: 10 });
+  return { reply, steps, toolMode };
 }

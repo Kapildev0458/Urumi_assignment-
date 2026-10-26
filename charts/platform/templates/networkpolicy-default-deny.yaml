@@ -1,0 +1,15 @@
+{{- if .Values.defaultDenyIngress }}
+# Deny by default: every pod in the namespace refuses incoming traffic unless a component's own
+# NetworkPolicy allows it (gateway <- ingress controller, woo-mcp <- gateway, MariaDB <- WordPress, ...).
+# A pod added later without a policy is therefore unreachable, not open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  labels:
+    app.kubernetes.io/part-of: urumi
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+{{- end }}

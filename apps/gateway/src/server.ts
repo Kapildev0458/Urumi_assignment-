@@ -4,6 +4,8 @@ import { apiErrorHandler, apiRouter } from './api.js';
 import { loadConfig } from './config.js';
 import { createDb, migrateAndSeed } from './db.js';
 import { mcpHandler } from './mcp.js';
+import { renderMetrics } from './metrics.js';
+import { pruneRateLimits } from './ratelimit.js';
 import { Upstreams } from './upstreams.js';
 
 const config = loadConfig();
@@ -23,6 +25,7 @@ for (let attempt = 1; ; attempt++) {
 
 const upstreams = new Upstreams(db, config);
 upstreams.start();
+setInterval(() => void pruneRateLimits(db).catch(() => undefined), 60_000).unref();
 
 const app = express();
 app.disable('x-powered-by');
@@ -42,7 +45,12 @@ app.get('/readyz', async (_req, res) => {
   }
 });
 
-app.post('/mcp', mcpHandler(db, upstreams));
+// Prometheus scrape target (pod port only; not routed by the Ingress).
+app.get('/metrics', async (_req, res) => {
+  res.type('text/plain; version=0.0.4').send(await renderMetrics(upstreams));
+});
+
+app.post('/mcp', mcpHandler(db, upstreams, config));
 // Stateless: no SSE stream to open (GET) and no session to delete (DELETE).
 app.all('/mcp', (_req, res) => {
   res.status(405).set('allow', 'POST').json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed' }, id: null });

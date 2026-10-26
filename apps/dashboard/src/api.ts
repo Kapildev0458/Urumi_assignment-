@@ -70,6 +70,16 @@ export interface AuditRow {
   error: string | null;
 }
 
+export interface ServerStats {
+  server: string;
+  calls: number;
+  errors: number;
+  denied: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  lastCallAt: string;
+}
+
 export interface ChatStep {
   tool: string;
   arguments: unknown;

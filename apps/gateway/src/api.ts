@@ -7,8 +7,9 @@ import { requireAdmin, requireSameOrigin, requireUser, SESSION_COOKIE, sessionAu
 import { llmConfigured, runChat } from './chat.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { hit } from './ratelimit.js';
 import { encrypt, hashPassword, newApiKey, newToken, sha256, verifyPassword } from './security.js';
-import { allowed, SEPARATOR, SERVER_NAME, type Restrictions, type ServerRow, type Upstreams } from './upstreams.js';
+import { allowed, GATEWAY, SEPARATOR, SERVER_NAME, type Restrictions, type ServerRow, type Upstreams } from './upstreams.js';
 
 class HttpError extends Error {
   constructor(
@@ -60,7 +61,10 @@ async function checkUpstreamUrl(raw: string): Promise<string> {
 }
 
 const serverInput = z.object({
-  name: z.string().regex(SERVER_NAME, 'lowercase letters, digits and "-", starting with a letter (max 30)'),
+  name: z
+    .string()
+    .regex(SERVER_NAME, 'lowercase letters, digits and "-", starting with a letter (max 30)')
+    .refine((n) => n !== GATEWAY, `"${GATEWAY}" is reserved for the gateway's own tools`),
   url: z.string().min(1),
   authType: z.enum(['none', 'bearer', 'header']).default('none'),
   authHeader: z.string().regex(/^[A-Za-z0-9-]{1,64}$/, 'invalid header name').optional().nullable(),
@@ -256,6 +260,27 @@ export function apiRouter(db: Db, config: Config, upstreams: Upstreams): express
     res.json(rows);
   });
 
+  // Observability: call volume, error rate and latency per server, from the audit log (so it covers
+  // every replica). Members get their own calls only, like the audit log itself.
+  api.get('/stats', async (req, res) => {
+    const user = me(req);
+    const q = parse(z.object({ hours: z.coerce.number().int().min(1).max(720).default(24) }), req.query);
+    const { rows } = await db.query(
+      `SELECT COALESCE(server_name, '(gateway)') AS server,
+              count(*)::int AS calls,
+              (count(*) FILTER (WHERE outcome = 'error'))::int AS errors,
+              (count(*) FILTER (WHERE outcome = 'denied'))::int AS denied,
+              (percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE outcome <> 'denied'))::int AS "p50Ms",
+              (percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE outcome <> 'denied'))::int AS "p95Ms",
+              max(at) AS "lastCallAt"
+       FROM audit_log
+       WHERE at > now() - $1 * interval '1 hour' AND ($2::int IS NULL OR user_id = $2)
+       GROUP BY 1 ORDER BY calls DESC`,
+      [q.hours, user.role === 'admin' ? null : user.id],
+    );
+    res.json({ hours: q.hours, servers: rows });
+  });
+
   api.post('/chat', async (req, res) => {
     if (!llmConfigured(config)) {
       throw new HttpError(503, 'The chat agent has no LLM configured yet (set the LLM Secret, see README).');
@@ -266,12 +291,18 @@ export function apiRouter(db: Db, config: Config, upstreams: Upstreams): express
           .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(20_000) }))
           .min(1)
           .max(40),
+        // Omitted: search mode is chosen automatically above TOOL_SEARCH_THRESHOLD tools.
+        toolMode: z.enum(['all', 'search']).optional(),
       }),
       req.body,
     );
     if (body.messages[body.messages.length - 1].role !== 'user') throw new HttpError(400, 'Last message must be from the user');
+    const limit = await hit(db, `chat:${me(req).id}`, config.chatRateLimit);
+    if (!limit.ok) {
+      throw new HttpError(429, `Chat rate limit: ${config.chatRateLimit} messages per minute. Try again in ${limit.retryAfter} s.`);
+    }
     try {
-      res.json(await runChat(config, upstreams, me(req), body.messages));
+      res.json(await runChat(config, upstreams, me(req), body.messages, body.toolMode));
     } catch (err) {
       console.error('Chat failed:', err);
       throw new HttpError(502, `LLM request failed: ${(err as Error).message.slice(0, 300)}`);

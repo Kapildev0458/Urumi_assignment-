@@ -33,6 +33,12 @@ export interface Config {
   listTimeoutMs: number;
   callTimeoutMs: number;
   refreshIntervalMs: number;
+  /** MCP requests per API key per minute (0 = unlimited). */
+  mcpRateLimit: number;
+  /** Chat messages per user per minute (0 = unlimited); each one can spend LLM credits. */
+  chatRateLimit: number;
+  /** Above this many tools the chat agent switches to the search/call meta-tools. */
+  toolSearchThreshold: number;
   seedAdminEmail: string;
   seedAdminPassword: string;
   seedServers: SeedServer[];
@@ -60,6 +66,9 @@ export function loadConfig(): Config {
     listTimeoutMs: int('UPSTREAM_LIST_TIMEOUT_MS', 5_000),
     callTimeoutMs: int('UPSTREAM_CALL_TIMEOUT_MS', 30_000),
     refreshIntervalMs: int('UPSTREAM_REFRESH_INTERVAL_MS', 15_000),
+    mcpRateLimit: int('RATE_LIMIT_MCP_PER_MINUTE', 120),
+    chatRateLimit: int('RATE_LIMIT_CHAT_PER_MINUTE', 10),
+    toolSearchThreshold: int('TOOL_SEARCH_THRESHOLD', 40),
     seedAdminEmail: (process.env.SEED_ADMIN_EMAIL ?? 'admin@example.com').toLowerCase(),
     seedAdminPassword: process.env.SEED_ADMIN_PASSWORD ?? '',
     seedServers: JSON.parse(process.env.SEED_SERVERS ?? '[]') as SeedServer[],

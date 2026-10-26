@@ -4,6 +4,9 @@ global:
   # Every Ingress host is "<prefix>.<domain>".
   domain: 127.0.0.1.nip.io
 
+# Namespace-wide NetworkPolicy: pods accept only the traffic their own policy allows.
+defaultDenyIngress: true
+
 store:
   enabled: true
 

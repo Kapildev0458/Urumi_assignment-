@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import { decrypt, encrypt, hashPassword, newApiKey, sha256, verifyPassword } from './security.js';
-import { allowed, describeError } from './upstreams.js';
+import { allowed, describeError, rankTools } from './upstreams.js';
 
 test('credentials round-trip through AES-256-GCM and fail with the wrong key', () => {
   const key = randomBytes(32);
@@ -42,4 +42,17 @@ test('tool permissions: admins use everything, members not restricted tools or s
   assert.equal(allowed(restrictions, 'member', 1, 'list_orders'), true);
   assert.equal(allowed(restrictions, 'member', 2, 'anything'), false);
   assert.equal(allowed(restrictions, 'member', 3, 'anything'), true);
+});
+
+test('tool search ranks by name first, then description', () => {
+  const tools = [
+    { name: 'notes__add_note', description: '[notes] Save a note', inputSchema: { type: 'object' as const } },
+    { name: 'woo__list_orders', description: '[woo] List store orders, optionally for one day', inputSchema: { type: 'object' as const } },
+    { name: 'woo__get_order', description: '[woo] One order with its items', inputSchema: { type: 'object' as const } },
+    { name: 'time__current_time', description: '[time] Current time in a timezone', inputSchema: { type: 'object' as const } },
+  ];
+  assert.equal(rankTools(tools, 'orders today', 8)[0].name, 'woo__list_orders');
+  assert.deepEqual(rankTools(tools, 'note', 8).map((t) => t.name), ['notes__add_note']);
+  assert.equal(rankTools(tools, 'zzz', 8).length, 0);
+  assert.equal(rankTools(tools, '', 2).length, 2);
 });

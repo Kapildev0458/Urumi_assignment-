@@ -53,8 +53,12 @@ spec:
         # Roll the pod when generated config changes.
         checksum/config: {{ include "store.wordpressEnv" . | sha256sum }}
     spec:
+      automountServiceAccountToken: false
+      # Apache in the official image starts as root to bind port 80, then serves as www-data (33).
       securityContext:
         fsGroup: 33
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: wordpress
           image: "{{ .Values.wordpress.image.repository }}:{{ .Values.wordpress.image.tag }}"

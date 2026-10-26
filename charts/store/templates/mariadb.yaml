@@ -34,12 +34,24 @@ spec:
         {{- include "store.labels" . | nindent 8 }}
         app.kubernetes.io/component: mariadb
     spec:
+      # No component of the store talks to the Kubernetes API.
+      automountServiceAccountToken: false
+      # The image's "mysql" user (999). Its entrypoint supports running as that user directly.
       securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
         fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mariadb
           image: "{{ .Values.mariadb.image.repository }}:{{ .Values.mariadb.image.tag }}"
           imagePullPolicy: {{ .Values.mariadb.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - name: mysql
               containerPort: 3306

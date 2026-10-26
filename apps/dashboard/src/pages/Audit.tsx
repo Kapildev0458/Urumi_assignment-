@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type AuditRow, type User } from '../api';
+import { api, timeAgo, type AuditRow, type ServerStats, type User } from '../api';
 
 export function AuditPage({ user }: { user: User }) {
   const [rows, setRows] = useState<AuditRow[]>([]);
+  const [stats, setStats] = useState<ServerStats[]>([]);
   const [server, setServer] = useState('');
   const [outcome, setOutcome] = useState('');
   const [error, setError] = useState('');
@@ -17,6 +18,9 @@ export function AuditPage({ user }: { user: User }) {
         setError('');
       })
       .catch((err: Error) => setError(err.message));
+    api<{ servers: ServerStats[] }>('GET', '/stats?hours=24')
+      .then((s) => setStats(s.servers))
+      .catch(() => undefined);
   }, [server, outcome]);
 
   useEffect(() => {
@@ -44,6 +48,45 @@ export function AuditPage({ user }: { user: User }) {
         dashboard chat agent, "mcp" = external client with an API key.
       </p>
       {error && <p className="error">{error}</p>}
+      {stats.length > 0 && (
+        <>
+          <h3>Last 24 hours per server</h3>
+          <table className="stats">
+            <thead>
+              <tr>
+                <th>Server</th>
+                <th>Calls</th>
+                <th>Error rate</th>
+                <th>Denied</th>
+                <th>p50</th>
+                <th>p95</th>
+                <th>Last call</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map((s) => (
+                <tr key={s.server}>
+                  <td>
+                    <button className="link" onClick={() => setServer(s.server === '(gateway)' ? '' : s.server)}>
+                      {s.server}
+                    </button>
+                  </td>
+                  <td>{s.calls}</td>
+                  <td className={s.errors ? 'error' : ''}>
+                    {s.calls - s.denied > 0 ? `${Math.round((100 * s.errors) / (s.calls - s.denied))}%` : '—'}
+                    {s.errors > 0 && <span className="muted small"> ({s.errors})</span>}
+                  </td>
+                  <td>{s.denied}</td>
+                  <td className="small">{s.p50Ms ?? '—'} ms</td>
+                  <td className="small">{s.p95Ms ?? '—'} ms</td>
+                  <td className="small">{timeAgo(s.lastCallAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <h3>Calls</h3>
+        </>
+      )}
       <table>
         <thead>
           <tr>

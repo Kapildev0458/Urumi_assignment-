@@ -238,6 +238,9 @@ table {
   overflow: hidden;
   margin: 12px 0;
 }
+table.stats {
+  margin-bottom: 24px;
+}
 th,
 td {
   text-align: left;

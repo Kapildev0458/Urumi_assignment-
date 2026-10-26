@@ -78,6 +78,12 @@ spec:
               value: {{ .Values.upstream.callTimeoutMs | quote }}
             - name: UPSTREAM_REFRESH_INTERVAL_MS
               value: {{ .Values.upstream.refreshIntervalMs | quote }}
+            - name: RATE_LIMIT_MCP_PER_MINUTE
+              value: {{ .Values.rateLimit.mcpPerKey | quote }}
+            - name: RATE_LIMIT_CHAT_PER_MINUTE
+              value: {{ .Values.rateLimit.chatPerUser | quote }}
+            - name: TOOL_SEARCH_THRESHOLD
+              value: {{ .Values.toolSearchThreshold | quote }}
             {{- $seeds := list }}
             {{- range $i, $s := .Values.seedServers }}
             {{- $entry := dict "name" $s.name "url" ($s.url | default (printf "http://%s-%s/mcp" $.Release.Name $s.service)) }}

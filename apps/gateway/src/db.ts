@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS tool_restrictions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (server_id, tool)
 );
+-- Rate limits: one row per bucket ("key:<id>", "chat:<user id>") and minute, shared by all replicas.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket       TEXT NOT NULL,
+  window_start TIMESTAMPTZ NOT NULL,
+  count        INTEGER NOT NULL,
+  PRIMARY KEY (bucket, window_start)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
   id          BIGSERIAL PRIMARY KEY,
   at          TIMESTAMPTZ NOT NULL DEFAULT now(),

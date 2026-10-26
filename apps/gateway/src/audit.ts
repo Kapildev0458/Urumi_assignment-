@@ -1,5 +1,6 @@
 // Audit log: one row per tool call (or rejected request), attributed to a user.
 import type { Db } from './db.js';
+import { recordCall } from './metrics.js';
 
 export interface AuditEntry {
   userId: number | null;
@@ -14,6 +15,7 @@ export interface AuditEntry {
 }
 
 export async function writeAudit(db: Db, entry: AuditEntry): Promise<void> {
+  recordCall(entry);
   try {
     await db.query(
       `INSERT INTO audit_log (user_id, user_email, via, server_name, tool, duration_ms, outcome, error)

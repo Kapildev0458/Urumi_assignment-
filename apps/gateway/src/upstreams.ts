@@ -180,6 +180,27 @@ export class Upstreams {
     return tools;
   }
 
+  /** gateway__search_tools: only tools the caller may use, audited like any other call. */
+  private async searchTools(args: Record<string, unknown> | undefined, caller: Caller, via: 'mcp' | 'chat'): Promise<CallToolResult> {
+    const started = Date.now();
+    const query = typeof args?.query === 'string' ? args.query : '';
+    const limit = Math.min(Math.max(Number(args?.limit) || 8, 1), 25);
+    const found = rankTools(await this.listTools(caller), query, limit);
+    await writeAudit(this.db, {
+      userId: caller.id,
+      userEmail: caller.email,
+      via,
+      serverName: GATEWAY,
+      tool: 'search_tools',
+      durationMs: Date.now() - started,
+      outcome: 'success',
+    });
+    const text = found.length
+      ? JSON.stringify(found.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })))
+      : `No tools match '${query}'. Try other keywords.`;
+    return { content: [{ type: 'text', text }] };
+  }
+
   /** Routes "<server>__<tool>" to its server, with a timeout, and writes the audit row. */
   async callTool(
     fullName: string,
@@ -187,6 +208,13 @@ export class Upstreams {
     caller: Caller,
     via: 'mcp' | 'chat',
   ): Promise<CallToolResult> {
+    if (fullName === SEARCH_TOOL) return this.searchTools(args, caller, via);
+    if (fullName === CALL_TOOL) {
+      const target = typeof args?.name === 'string' ? args.name : '';
+      if (!target || target.startsWith(`${GATEWAY}${SEPARATOR}`)) return errorResult(`${CALL_TOOL}: 'name' must be an upstream tool name.`);
+      const inner = args?.arguments;
+      return this.callTool(target, inner && typeof inner === 'object' ? (inner as Record<string, unknown>) : {}, caller, via);
+    }
     const started = Date.now();
     const cut = fullName.indexOf(SEPARATOR);
     const serverName = cut > 0 ? fullName.slice(0, cut) : null;
@@ -248,6 +276,64 @@ export class Upstreams {
   }
 }
 
+/**
+ * Handling many tools: with ten servers a client can face hundreds of tools. In search mode it gets
+ * only these two, finds what it needs, then calls it. Both go through the normal permission,
+ * routing and audit path. "gateway" is a reserved server name, so no upstream can shadow them.
+ */
+export const GATEWAY = 'gateway';
+export const SEARCH_TOOL = `${GATEWAY}${SEPARATOR}search_tools`;
+export const CALL_TOOL = `${GATEWAY}${SEPARATOR}call_tool`;
+
+export const META_TOOLS: Tool[] = [
+  {
+    name: SEARCH_TOOL,
+    description:
+      '[gateway] Search the tools of every connected MCP server by keywords (e.g. "orders today", "note"). ' +
+      'Returns matching tool names, descriptions and input schemas. Call one with gateway__call_tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keywords describing the task' },
+        limit: { type: 'number', description: 'Maximum results (default 8)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: CALL_TOOL,
+    description: '[gateway] Call a tool found with gateway__search_tools, by its full name, with arguments matching its input schema.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Full tool name, e.g. woo__list_orders' },
+        arguments: { type: 'object', description: 'Arguments for that tool' },
+      },
+      required: ['name'],
+    },
+  },
+];
+
+/** Keyword ranking over name and description; the name counts most. */
+export function rankTools(tools: Tool[], query: string, limit: number): Tool[] {
+  const words = query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1);
+  const scored = tools.map((t) => {
+    const name = t.name.toLowerCase();
+    const text = `${t.title ?? ''} ${t.description ?? ''}`.toLowerCase();
+    // Crude stemming so "orders" matches "list_orders" and "order".
+    const score = words.reduce((s, w) => {
+      const stem = w.replace(/(es|s)$/, '');
+      return s + (name.includes(stem) ? 3 : 0) + (text.includes(stem) ? 1 : 0);
+    }, 0);
+    return { t, score };
+  });
+  return scored
+    .filter((x) => x.score > 0 || words.length === 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((x) => x.t);
+}
+
 function emptySnapshot(): Snapshot {
   return { status: 'unknown', error: null, tools: [], checkedAt: null, latencyMs: null };
 }
@@ -256,11 +342,11 @@ function errorResult(message: string): CallToolResult {
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
-export function textOf(result: CallToolResult): string {
+export function textOf(result: CallToolResult, max = 1000): string {
   return result.content
     .map((c) => (c.type === 'text' ? c.text : `[${c.type}]`))
     .join('\n')
-    .slice(0, 1000);
+    .slice(0, max);
 }
 
 /** Short, human-readable reason (shown in the dashboard and returned to clients). */

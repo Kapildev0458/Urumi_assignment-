@@ -248,6 +248,32 @@ Node.js + TypeScript, official MCP SDK, PostgreSQL. Design details and trade-off
     Members can still read products and orders.
   - Stored in `tool_restrictions`, and read on every list and call like the enabled flag, so a
     change applies at once on every replica (`PUT /api/servers/:id/permissions`).
+- **Many tools (search mode):** with ten servers a client can face hundreds of tools. Connect to
+  `http://app.<domain>/mcp?tools=search` and the client gets just two meta-tools:
+  - `gateway__search_tools(query)`: keyword search over the tools you may use, returning names,
+    descriptions and input schemas;
+  - `gateway__call_tool(name, arguments)`: runs one of them through the normal routing,
+    permissions and audit.
+
+  The chat agent switches to this mode automatically above `toolSearchThreshold` (40) tools, or
+  when you tick *Tool search mode* on the Chat page. `gateway` is a reserved server name, so no
+  upstream can shadow these tools.
+- **Rate limits** (scaling): 120 MCP requests per minute per API key (HTTP 429 with
+  `Retry-After`, audited as `denied`) and 10 chat messages per minute per user (each one spends LLM
+  credits). Counted per minute in PostgreSQL, so the limit holds across replicas. Set them with
+  `gateway.rateLimit.*` (0 = off).
+- **Replicas** (scaling): the gateway is stateless (stateless MCP, sessions and limits in
+  PostgreSQL), so `values-prod.yaml` runs 2 replicas. Locally:
+  `kubectl -n urumi scale deploy urumi-gateway --replicas=2`, then re-run `scripts\dod-check.ps1`.
+- **Observability:**
+  - The Audit page shows, per server for the last 24 h: calls, error rate, denied calls, and p50/p95
+    latency (`GET /api/stats`, computed from the audit log, so it covers every replica).
+  - Prometheus metrics on the pod port, not routed by the Ingress:
+    `urumi_tool_calls_total{server,tool,via,outcome}`, `urumi_tool_call_duration_seconds` (histogram)
+    and `urumi_upstream_up{server,status}`. Try
+    `kubectl -n urumi exec deploy/urumi-gateway -- node -e "fetch('http://localhost:3000/metrics').then(r=>r.text()).then(console.log)"`.
+  - Why something failed: the Servers page shows each unreachable server's reason (`ECONNREFUSED`,
+    `timed out after 5000 ms`, HTTP status), and failed calls return and audit the error text.
 - **Audit log:** every tool call is recorded with user, via (`mcp` or `chat`), server, tool, time,
   duration and outcome (`success`, `error` or `denied`).
   - Requests with a revoked key, and calls to a restricted tool, are recorded as `denied` under the
