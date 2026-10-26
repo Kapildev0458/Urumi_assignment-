@@ -110,8 +110,33 @@ export function KeysPage({ config }: { config: AppConfig | null }) {
   );
 }
 
+/**
+ * navigator.clipboard only exists on HTTPS (and localhost), so on the local http:// domain fall
+ * back to the older execCommand('copy') on a temporary textarea.
+ */
+async function copyText(text: string): Promise<boolean> {
+  if (window.isSecureContext && navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to the fallback
+    }
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(area);
+  return ok;
+}
+
 export function CopyBox({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'' | 'ok' | 'fail'>('');
   return (
     <div className="copybox">
       <pre>{text}</pre>
@@ -119,13 +144,13 @@ export function CopyBox({ text }: { text: string }) {
         className="secondary"
         type="button"
         onClick={() => {
-          void navigator.clipboard?.writeText(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
+          void copyText(text).then((ok) => {
+            setCopied(ok ? 'ok' : 'fail');
+            setTimeout(() => setCopied(''), 1500);
           });
         }}
       >
-        {copied ? 'Copied' : 'Copy'}
+        {copied === 'ok' ? 'Copied' : copied === 'fail' ? 'Select and Ctrl+C' : 'Copy'}
       </button>
     </div>
   );
