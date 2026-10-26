@@ -24,7 +24,7 @@ docs/          brief (ASSIGNMENT.md), system design and tradeoffs (ARCHITECTURE.
 | Item | Status | Where |
 |---|---|---|
 | Bonus: multi-store provisioning | Not attempted | — |
-| 1. Production-like VPS deployment | **Not deployed** (no cloud credits left). Script and instructions are ready; `values-prod.yaml` renders | [`scripts/vps-setup.sh`](scripts/vps-setup.sh), "Production-like VPS (k3s)" below |
+| 1. Production-like VPS deployment | **Done:** live on Azure k3s with Let's Encrypt TLS, same charts plus `values-prod.yaml`, full `dod-check.ps1` passes. <https://app.4.194.15.15.sslip.io> | [`scripts/vps-setup.sh`](scripts/vps-setup.sh), "Production-like VPS (k3s)" below |
 | 2. Tool permissions | Done: per role, per tool or whole server; hidden from the list *and* rejected by name | `allowed()`, `listTools()`, `callTool()` in [`apps/gateway/src/upstreams.ts`](apps/gateway/src/upstreams.ts); `PUT /api/servers/:id/permissions`; Servers page |
 | 3. OAuth on the gateway | Not attempted | — |
 | 4. Handling many tools | Done: `gateway__search_tools` + `gateway__call_tool` (`/mcp?tools=search`, chat search mode) | `META_TOOLS`, `rankTools()` in `upstreams.ts`; [`apps/gateway/src/chat.ts`](apps/gateway/src/chat.ts) |
@@ -117,10 +117,21 @@ and `dashboard`.
 The same charts deploy to a single-node k3s server with `values-prod.yaml`; only values change.
 [`scripts/vps-setup.sh`](scripts/vps-setup.sh) does the whole setup on a fresh Ubuntu VM.
 
-> **Status:** not deployed to a public VPS for this submission (the cloud credits I planned to
-> use were gone). What was checked locally: `values-prod.yaml` renders cleanly, 2 gateway replicas
-> pass the full `dod-check.ps1`, and the rendered prod manifests use `https://store.<domain>` for
-> WooCommerce's OAuth signature. TLS, cert-manager and the script itself have not run on a real server.
+> **Live:** deployed with exactly these steps on an Azure VM (Ubuntu 24.04, Standard_B2as_v2,
+> Southeast Asia), with Let's Encrypt HTTPS:
+> - storefront: <https://store.4.194.15.15.sslip.io>
+> - dashboard: <https://app.4.194.15.15.sslip.io>
+> - MCP endpoint: `https://app.4.194.15.15.sslip.io/mcp`
+>
+> `scripts/dod-check.ps1 -Domain 4.194.15.15.sslip.io -Https -AdminEmail admin@example.com` passes
+> against it with 0 failures (kubectl through an SSH tunnel; the API port is not opened).
+>
+> The deployment found two bugs that the local cluster could not:
+> - with TLS, woo-mcp signed OAuth against `http://` (fixed by `woo-mcp.store.publicTls`);
+> - the default-deny NetworkPolicy blocked cert-manager's HTTP-01 solver pods (fixed by
+>   `allow-acme-http01-solver`).
+>
+> The upgrade that shipped the second fix was a normal `helm upgrade` (revision 2).
 
 **1. A server.** Ubuntu 24.04, 2 vCPU, 8 GB RAM (4 GB minimum), 30 GB disk, with TCP 22, 80 and
 443 open. Any provider works; with the Azure CLI, for example:

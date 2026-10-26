@@ -14,7 +14,7 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 
   Stand-outs done and verified by `dod-check.ps1`: tool permissions, many tools (search mode),
   security hardening, scaling (rate limits, 2 gateway replicas with shared health), observability,
-  plus upgrades and rollback (docs). The VPS is **not** deployed: the user's Azure credits were gone.
+  plus upgrades and rollback (docs). The VPS is **live** at https://app.4.194.15.15.sslip.io.
   `scripts/vps-setup.sh` is untested.
 - **User's plan:** study with `prep/VIDEO-GUIDE.md` (git-ignored) until 18:00, then record a new
   video. Form answers are in `prep/FORM-ANSWERS.md`.
@@ -61,7 +61,7 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 - [x] k3d cluster config + smoke test (`k3d/`, `scripts/cluster-up.ps1`)
 - [x] Prereq check, deploy, build-images scripts (`scripts/`); teardown `[~]` (not run yet)
 - [x] Umbrella chart with values-local (`charts/platform`); values-prod `[~]` (renders, not deployed)
-- [~] VPS with k3s: `scripts/vps-setup.sh` + README steps written, NOT run (no cloud credits)
+- [x] VPS with k3s: Azure VM 4.194.15.15 (Southeast Asia, Standard_B2as_v2), https://app.4.194.15.15.sslip.io, Let's Encrypt TLS, dod-check 0 failures
 
 ### Store (`charts/store`)
 - [x] MariaDB + WordPress with PVCs, probes, requests/limits
@@ -217,3 +217,19 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
   `scripts/vps-setup.sh` (not run: no Azure credits).
 
   A one-off "LLM Connection error" right after a deploy cleared on retry.
+- **2026-10-26 (12:10–14:20)** — The VPS is live after all (the Azure credits were there).
+  - Azure for Students allows only uaenorth, malaysiawest, southeastasia, austriaeast and koreacentral.
+    Microsoft.Network and Microsoft.Compute had to be registered first. Login needed
+    `az login --tenant <id>` (MFA).
+  - VM `urumi-vps` in resource group `urumi-sea-rg`, SSH key `~/.ssh/urumi_vps`. `vps-setup.sh` ran
+    clean on its first try.
+  - Bug found: default-deny blocked the cert-manager HTTP-01 solver pods (502). Fixed by
+    `allow-acme-http01-solver` and shipped as helm revision 2.
+  - kubectl from the laptop goes through an SSH tunnel (`-L 16443:127.0.0.1:6443`, kubeconfig
+    `~/.kube/urumi-vps.yaml`); port 6443 is not opened.
+  - The user created the LLM Secret by hand. The key was pasted in chat, so **revoke it after
+    submission**.
+  - `dod-check.ps1` now takes `-Domain/-Https/-AdminEmail`, and the rate-limit test sends a
+    parallel burst. 0 failures on the VPS.
+  - Cost: about $2/day from the credits. To stop billing for compute:
+    `az vm deallocate -g urumi-sea-rg -n urumi-vps`.

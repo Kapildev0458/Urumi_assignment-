@@ -155,8 +155,9 @@ The same charts are used everywhere; only values change.
 
 ## Known limitations / next steps
 
-- Not deployed to a public VPS for this submission. `scripts/vps-setup.sh` and the README steps
-  are ready but have not been run on a real server.
+- The VPS is a single node: one failure takes the platform down. Next: 3 k3s servers, a networked
+  StorageClass, and a managed or replicated database. Only values change in the charts.
+- Images are built on the VPS; a CI pipeline pushing to a registry would replace that step.
 - WordPress (Apache) starts as root inside its container; the other containers are non-root.
 - Egress is not restricted. The gateway must reach admin-chosen upstream URLs and the LLM API.
   The MCP servers could get egress policies limited to WordPress and DNS.

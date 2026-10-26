@@ -1,6 +1,16 @@
-﻿$ErrorActionPreference = 'Stop'
-$App = 'http://app.127.0.0.1.nip.io'
-$Store = 'http://store.127.0.0.1.nip.io'
+﻿# Runs the whole Definition of Done (two users) plus the stand-out items against a cluster.
+# Local:  powershell -ExecutionPolicy Bypass -File scripts\dod-check.ps1
+# VPS:    $env:KUBECONFIG = "$HOME\.kube\urumi-vps.yaml"
+#         powershell -ExecutionPolicy Bypass -File scripts\dod-check.ps1 -Domain <ip>.sslip.io -Https -AdminEmail admin@example.com
+param(
+  [string]$Domain = '127.0.0.1.nip.io',
+  [switch]$Https,
+  [string]$AdminEmail = 'admin@urumi.local'
+)
+$ErrorActionPreference = 'Stop'
+$scheme = if ($Https) { 'https' } else { 'http' }
+$App = "${scheme}://app.$Domain"
+$Store = "${scheme}://store.$Domain"
 $stamp = Get-Date -Format 'HHmmss'
 
 function Step($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
@@ -34,7 +44,7 @@ function ToolNames($key) { (Mcp $key 'tools/list' @{}).result.tools | ForEach-Ob
 Step 'Admin login'
 $pw = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl -n urumi get secret urumi-gateway-secrets -o jsonpath='{.data.admin-password}')))
 $A = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$me = Api $A Post '/auth/login' @{ email = 'admin@urumi.local'; password = $pw }
+$me = Api $A Post '/auth/login' @{ email = $AdminEmail; password = $pw }
 if ($me.role -eq 'admin') { Ok "logged in as $($me.email)" } else { Bad 'admin login' }
 
 Step 'Servers page: status + tools'
@@ -148,12 +158,20 @@ $via = Mcp $bKey.key 'tools/call' @{ name = 'gateway__call_tool'; arguments = @{
 if ($via.result.content[0].text -match "$($order.order_id)") { Ok 'gateway__call_tool ran woo__list_orders' } else { Bad 'call_tool failed' }
 
 Step 'Rate limit per key -> 429 after the per-minute limit'
-$limited = $null
-for ($i = 1; $i -le 200 -and -not $limited; $i++) {
-  $rl = Mcp $bKey.key 'tools/list' @{}
-  if ($rl.httpStatus -eq 429) { $limited = $i }
+# Send a parallel burst, so the test also works over a slow link (sequential requests to a far-away
+# VPS can straddle two one-minute windows).
+Add-Type -AssemblyName System.Net.Http
+$http = New-Object System.Net.Http.HttpClient
+$http.DefaultRequestHeaders.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $bKey.key)
+$http.DefaultRequestHeaders.Accept.ParseAdd('application/json, text/event-stream')
+$burst = 1..140 | ForEach-Object {
+  $content = New-Object System.Net.Http.StringContent('{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}', [Text.Encoding]::UTF8, 'application/json')
+  $http.PostAsync("$App/mcp", $content)
 }
-if ($limited) { Ok "request $limited in this minute got 429" } else { Bad 'no 429 after 200 requests' }
+[Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]$burst)
+$codes = $burst | ForEach-Object { [int]$_.Result.StatusCode }
+$limited = @($codes | Where-Object { $_ -eq 429 }).Count
+if ($limited) { Ok "burst of 140: $(@($codes | Where-Object { $_ -eq 200 }).Count) x 200, $limited x 429" } else { Bad "no 429 in a burst of 140 ($(($codes | Group-Object | ForEach-Object { "$($_.Count)x$($_.Name)" }) -join ', '))" }
 
 Step 'Observability: per-server stats and Prometheus metrics'
 $st = (Api $A Get '/stats?hours=24').servers
@@ -172,7 +190,7 @@ if ($r.httpStatus -eq 401) { Ok 'revoked key -> 401' } else { Bad "revoked key g
 Step 'Audit log'
 $audit = Api $A Get '/audit?limit=500'
 $audit | Select-Object -First 20 | ForEach-Object { Write-Host ("  {0,-34} {1,-5} {2,-7} {3,-20} {4,-8} {5}ms" -f $_.userEmail, $_.via, $_.server, $_.tool, $_.outcome, $_.durationMs) }
-if ($audit | Where-Object { $_.userEmail -eq 'admin@urumi.local' -and $_.via -eq 'chat' }) { Ok 'chat calls audited under admin' } else { Bad 'no admin chat audit' }
+if ($audit | Where-Object { $_.userEmail -eq $AdminEmail -and $_.via -eq 'chat' }) { Ok 'chat calls audited under admin' } else { Bad 'no admin chat audit' }
 if ($audit | Where-Object { $_.userEmail -eq $bUser.email -and $_.outcome -eq 'denied' -and $_.error -match 'revoked' }) { Ok 'B revoked call audited as denied' } else { Bad 'no denied entry for B' }
 if ($audit | Where-Object { $_.userEmail -eq $bUser.email -and $_.outcome -eq 'denied' -and $_.tool -eq 'create_product' }) { Ok 'B restricted call audited as denied' } else { Bad 'no denied entry for restricted call' }
 
