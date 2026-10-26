@@ -12,4 +12,26 @@ metadata:
 spec:
   podSelector: {}
   policyTypes: [Ingress]
+---
+# With TLS, cert-manager answers Let's Encrypt's HTTP-01 check from short-lived solver pods in this
+# namespace; the ingress controller must be able to reach them or certificates never issue.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-acme-http01-solver
+  labels:
+    app.kubernetes.io/part-of: urumi
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.ingressControllerNamespace }}
+      ports:
+        - port: 8089
 {{- end }}

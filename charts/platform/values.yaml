@@ -6,6 +6,8 @@ global:
 
 # Namespace-wide NetworkPolicy: pods accept only the traffic their own policy allows.
 defaultDenyIngress: true
+# Where the ingress controller runs (Traefik is in kube-system on k3s).
+ingressControllerNamespace: kube-system
 
 store:
   enabled: true
