@@ -16,6 +16,23 @@ docs/          brief (ASSIGNMENT.md), system design and tradeoffs (ARCHITECTURE.
 
 - **System design and tradeoffs:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **Threat model:** [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md)
+- **End-to-end check:** [`scripts/dod-check.ps1`](scripts/dod-check.ps1) runs the whole Definition
+  of Done with two users, plus every stand-out item below, against the cluster.
+
+## Bonus and stand-out items
+
+| Item | Status | Where |
+|---|---|---|
+| Bonus: multi-store provisioning | Not attempted | — |
+| 1. Production-like VPS deployment | **Not deployed** (no cloud credits left). Script and instructions are ready; `values-prod.yaml` renders | [`scripts/vps-setup.sh`](scripts/vps-setup.sh), "Production-like VPS (k3s)" below |
+| 2. Tool permissions | Done: per role, per tool or whole server; hidden from the list *and* rejected by name | `allowed()`, `listTools()`, `callTool()` in [`apps/gateway/src/upstreams.ts`](apps/gateway/src/upstreams.ts); `PUT /api/servers/:id/permissions`; Servers page |
+| 3. OAuth on the gateway | Not attempted | — |
+| 4. Handling many tools | Done: `gateway__search_tools` + `gateway__call_tool` (`/mcp?tools=search`, chat search mode) | `META_TOOLS`, `rankTools()` in `upstreams.ts`; [`apps/gateway/src/chat.ts`](apps/gateway/src/chat.ts) |
+| 5. Hosted MCP servers | Not attempted | — |
+| 6. Security hardening | Done, except WordPress (Apache) still starts as root | Default-deny NetworkPolicy + per-component policies, non-root containers, SSRF guard (`checkUpstreamUrl` in [`api.ts`](apps/gateway/src/api.ts)), AES-256-GCM credentials, no service-account tokens (no component uses the Kubernetes API, so no RBAC), [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) |
+| 7. Scaling | Done: rate limits per key and per user, shared across replicas; multiple gateway replicas | [`apps/gateway/src/ratelimit.ts`](apps/gateway/src/ratelimit.ts); `gateway.replicas` |
+| 8. Observability | Done: per-server calls, error rate, p50/p95; Prometheus `/metrics`; reasons for unreachable servers and failed calls | Audit page, `GET /api/stats`, [`apps/gateway/src/metrics.ts`](apps/gateway/src/metrics.ts) |
+| 9. Upgrades and rollback | Documented | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), "Upgrades and rollback" |
 
 ## Local environment
 
@@ -94,6 +111,72 @@ without it.
 `charts/platform` is an umbrella chart. Each component is its own chart, so it can also be
 installed alone: `store`, `woo-mcp`, `notes-mcp`, `time-mcp`, `gateway` (with its PostgreSQL)
 and `dashboard`.
+
+## Production-like VPS (k3s)
+
+The same charts deploy to a single-node k3s server with `values-prod.yaml`; only values change.
+[`scripts/vps-setup.sh`](scripts/vps-setup.sh) does the whole setup on a fresh Ubuntu VM.
+
+> **Status:** not deployed to a public VPS for this submission (the cloud credits I planned to
+> use were gone). What was checked locally: `values-prod.yaml` renders cleanly, 2 gateway replicas
+> pass the full `dod-check.ps1`, and the rendered prod manifests use `https://store.<domain>` for
+> WooCommerce's OAuth signature. TLS, cert-manager and the script itself have not run on a real server.
+
+**1. A server.** Ubuntu 24.04, 2 vCPU, 8 GB RAM (4 GB minimum), 30 GB disk, with TCP 22, 80 and
+443 open. Any provider works; with the Azure CLI, for example:
+
+```bash
+az group create -n urumi-rg -l centralindia
+az vm create -g urumi-rg -n urumi-vps --image Ubuntu2404 --size Standard_B2as_v2 \
+  --admin-username azureuser --generate-ssh-keys --public-ip-sku Standard --os-disk-size-gb 64
+az vm open-port -g urumi-rg -n urumi-vps --port 80,443 --priority 1010
+```
+
+**2. A domain.** Use `<public-ip>.sslip.io`, a wildcard DNS like nip.io, so `store.` and `app.`
+resolve with no setup. With your own domain, point `store.<domain>` and `app.<domain>` (A records)
+at the server.
+
+**3. Deploy** (on the server):
+
+```bash
+git clone https://github.com/Kapildev0458/Urumi_assignment- urumi && cd urumi
+sudo DOMAIN=<public-ip>.sslip.io bash scripts/vps-setup.sh            # HTTPS via Let's Encrypt
+sudo DOMAIN=<public-ip>.sslip.io TLS=false bash scripts/vps-setup.sh  # or plain HTTP
+```
+
+The script:
+1. Installs k3s at the same version as local (`v1.35.5+k3s1`, Traefik and `local-path` included),
+   then Helm and Docker. Docker only builds the images.
+2. With TLS, installs cert-manager and a `letsencrypt-prod` ClusterIssuer (HTTP-01 through Traefik).
+3. Builds the five app images on the server and imports them into k3s's containerd. No registry
+   is needed, and the tags go into a generated `values-images.yaml`, as locally.
+4. Runs `helm upgrade --install urumi charts/platform -f values-prod.yaml -f values-images.yaml --set global.domain=<domain>`.
+5. Prints the URLs and how to read the admin password.
+
+**4. Chat agent:** create the LLM Secret as in "Chat agent" below, with `sudo k3s kubectl` instead
+of `kubectl`, then restart the gateway.
+
+**5. Use it:** open `https://app.<domain>`. Connect Claude Code with
+`claude mcp add --transport http urumi https://app.<domain>/mcp --header "Authorization: Bearer <key>"`.
+
+**Upgrade and rollback:**
+- Upgrade: `git pull`, then run the script again. It builds new image tags, and `helm upgrade` rolls
+  the pods one by one behind their readiness probes.
+- Roll back:
+  `sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml -n urumi history urumi`, then `… rollback urumi <revision>`.
+- See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), "Upgrades and rollback", for the database
+  caveat.
+
+**What changes from local to VPS** (all through Helm values):
+
+| | Local (`values-local.yaml`) | VPS (`values-prod.yaml`) |
+|---|---|---|
+| DNS / domain | `127.0.0.1.nip.io` | `<ip>.sslip.io` or your domain (`--set global.domain`) |
+| Ingress | Traefik, HTTP | Traefik, HTTPS: cert-manager annotations, `tls.enabled: true`, `Secure` cookies, https store URL for WooCommerce's OAuth signature |
+| Storage | `local-path`, 2 Gi | `local-path` (single node), 10 Gi. On a multi-node cluster, only `storageClass` changes (Longhorn, a cloud disk class) |
+| Secrets | Generated once by Helm (`lookup`), kept on upgrade; LLM key created with `kubectl` | Same. Back up `urumi-gateway-secrets`: without its `credentials-key`, stored upstream credentials can't be decrypted |
+| Images | k3d registry `localhost:5000` | Built on the server, or a real registry (`image.repository`) |
+| Replicas | gateway 2, others 1 | gateway 2, dashboard 2 |
 
 ## Store (`charts/store`)
 
@@ -262,9 +345,9 @@ Node.js + TypeScript, official MCP SDK, PostgreSQL. Design details and trade-off
   `Retry-After`, audited as `denied`) and 10 chat messages per minute per user (each one spends LLM
   credits). Counted per minute in PostgreSQL, so the limit holds across replicas. Set them with
   `gateway.rateLimit.*` (0 = off).
-- **Replicas** (scaling): the gateway is stateless (stateless MCP, sessions and limits in
-  PostgreSQL), so `values-prod.yaml` runs 2 replicas. Locally:
-  `kubectl -n urumi scale deploy urumi-gateway --replicas=2`, then re-run `scripts\dod-check.ps1`.
+- **Replicas** (scaling): the gateway is stateless. MCP is stateless, and sessions, rate limits
+  and the latest health check per server live in PostgreSQL. So both `values-local.yaml` and
+  `values-prod.yaml` run 2 replicas, and `scripts\dod-check.ps1` passes against them.
 - **Observability:**
   - The Audit page shows, per server for the last 24 h: calls, error rate, denied calls, and p50/p95
     latency (`GET /api/stats`, computed from the audit log, so it covers every replica).
@@ -358,7 +441,7 @@ users.
    *Reconnect* to see them disappear; calling one directly is rejected right away
    ("Server 'notes' is disabled").
 8. **Kill an upstream:** `kubectl -n urumi scale deploy/urumi-time-mcp --replicas=0`.
-   - Within 15 s (or press *Check*) time shows **Unreachable** (`ECONNREFUSED`); woo and notes keep
+   - Within 15 s (or press *Check*) time shows **Unreachable** (`ECONNREFUSED`, or "timed out after 5000 ms" while the pod is still shutting down); woo and notes keep
      working.
    - Bring it back with `--replicas=1`.
    - `kubectl delete pod` works too, but the Deployment replaces the pod within seconds.

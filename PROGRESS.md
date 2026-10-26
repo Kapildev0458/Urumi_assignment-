@@ -8,11 +8,18 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 
 ## Current status (2026-10-26)
 
-- **Gap review against the brief (2026-10-26):** every mandatory requirement is in the code.
-  Open small fixes: (1) README "Deploying" skips `build-images.ps1` (it sits after the demo
-  section), so a fresh clone fails; (2) learning leftovers `apps/notes-mcp/k8s-learn.yaml` and
-  `apps/notes-mcp/notes.json` (gitignored but tracked) are still in the repo; (3) README demo
-  step 7 should say Claude Code needs `/mcp` → reconnect to drop a disabled server's tools.
+- **2026-10-26: submission day.** Mandatory deliverables are complete:
+  - README with local setup, VPS instructions, and the stand-out list;
+  - `docs/ARCHITECTURE.md` (design and tradeoffs) and `docs/THREAT-MODEL.md`.
+
+  Stand-outs done and verified by `dod-check.ps1`: tool permissions, many tools (search mode),
+  security hardening, scaling (rate limits, 2 gateway replicas with shared health), observability,
+  plus upgrades and rollback (docs). The VPS is **not** deployed: the user's Azure credits were gone.
+  `scripts/vps-setup.sh` is untested.
+- **User's plan:** study with `prep/VIDEO-GUIDE.md` (git-ignored) until 18:00, then record a new
+  video. Form answers are in `prep/FORM-ANSWERS.md`.
+- The demo video must be **re-recorded** (Urumi's checklist plus the new features). The old one
+  predates them.
 
 - **The whole core platform is built and deployed in the local cluster** (namespace `urumi`):
   store, woo-mcp, notes-mcp, time-mcp, gateway + PostgreSQL, dashboard.
@@ -21,9 +28,9 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
   multi-step prompts misbehave). Key is in the non-Helm Secret `urumi-gateway-llm`.
 - **Full DoD verified end to end with two users** by `scripts/dod-check.ps1` (0 failures): it runs
   every step through the same APIs the dashboard and MCP clients use. Re-run it before recording.
-- Demo video recorded; the leaked Anthropic keys are deleted (chat still works on the cluster's key).
-- **Still to do by the user:** submit the GitHub repo link + demo video before 2026-10-26.
-- Skipped on purpose (optional, no time): VPS deploy (bonus 1), tool permissions (bonus 2).
+- The leaked Anthropic keys are deleted (chat still works on the cluster's key).
+- **Still to do by the user:** record the video, then submit the form (repo + video) on 2026-10-26.
+- Not attempted: multi-store bonus, OAuth, hosted MCP servers. VPS: not deployed (no credits).
 - Admin login: `admin@urumi.local`, password from
   `kubectl -n urumi get secret urumi-gateway-secrets -o jsonpath="{.data.admin-password}"` (base64).
   The test user `bob@urumi.local` / `bob-pass-123` exists (member, key revoked during the test).
@@ -54,7 +61,7 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 - [x] k3d cluster config + smoke test (`k3d/`, `scripts/cluster-up.ps1`)
 - [x] Prereq check, deploy, build-images scripts (`scripts/`); teardown `[~]` (not run yet)
 - [x] Umbrella chart with values-local (`charts/platform`); values-prod `[~]` (renders, not deployed)
-- [ ] VPS with k3s, deploy with `values-prod.yaml`
+- [~] VPS with k3s: `scripts/vps-setup.sh` + README steps written, NOT run (no cloud credits)
 
 ### Store (`charts/store`)
 - [x] MariaDB + WordPress with PVCs, probes, requests/limits
@@ -108,7 +115,13 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
 - [x] `docs/ARCHITECTURE.md`: diagram, flows, decisions, collision scheme, security, prod values diff, upgrade/rollback
 
 ### Bonus / stand-out (only after the core works)
-- [~] Security hardening partly done (NetworkPolicies for every component, non-root, SSRF guard, encrypted credentials). Still open: VPS deploy, tool permissions
+- [x] Tool permissions (per role, per tool or whole server; hidden + rejected; audited denied)
+- [x] Handling many tools (`/mcp?tools=search`, chat search mode; verified with the real LLM)
+- [x] Security hardening (default-deny ingress, MariaDB non-root, no SA tokens, SSRF guard, encrypted creds, threat model). WordPress Apache still root
+- [x] Scaling (rate limits per key / per user in PostgreSQL; 2 gateway replicas with shared health in `server_health`)
+- [x] Observability (Audit-page stats, `/api/stats`, Prometheus `/metrics` on the pod port)
+- [x] Upgrades and rollback (documented in ARCHITECTURE)
+- [ ] Multi-store bonus, OAuth, hosted MCP servers (not attempted)
 
 ## Day plan (to 2026-10-26)
 
@@ -186,3 +199,21 @@ Legend: `[x]` done and verified in the cluster · `[~]` written but not yet veri
   keys, audit, chat as user); `helm template` renders for local and prod; GitHub repo is public.
   Cluster was stopped during the review (not re-run). Remaining: 3 small fixes (see Current
   status) and the submission. Bonus multi-store and stand-outs 1–5, 7, 8 not attempted.
+- **2026-10-26 (11:20–12:10)** — Built and verified (dod-check, 0 failures) all of these:
+  - tool permissions (`tool_restrictions`);
+  - observability (`/api/stats` on the Audit page, Prometheus `/metrics`);
+  - rate limits (`rate_limits`: 120/min per key → 429, 10 chat/min per user);
+  - tool search mode (`gateway__search_tools` / `gateway__call_tool`, real-LLM run: search → call → right answer);
+  - hardening (default-deny ingress, MariaDB uid 999, no SA tokens on store pods).
+
+  Bug found by running 2 replicas: health status was per replica, so the "kill upstream" step showed
+  Connected on the other replica. Fixed by sharing the newest check in `server_health`. Local values
+  now run 2 gateway replicas.
+
+  Prod bug fixed: with TLS, woo-mcp signed OAuth against http while WordPress's home was https
+  (`woo-mcp.store.publicTls`).
+
+  Also written: `docs/THREAT-MODEL.md`, the README VPS section and stand-out table, and
+  `scripts/vps-setup.sh` (not run: no Azure credits).
+
+  A one-off "LLM Connection error" right after a deploy cleared on retry.

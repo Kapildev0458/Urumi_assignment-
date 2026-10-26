@@ -88,6 +88,37 @@ export class Upstreams {
     this.snapshots.delete(id);
   }
 
+  /** Keeps a check result locally and shares it with the other replicas (newest check wins). */
+  private async remember(id: number, snap: Snapshot): Promise<void> {
+    this.snapshots.set(id, snap);
+    await this.db
+      .query(
+        `INSERT INTO server_health (server_id, status, error, tools, latency_ms, checked_at) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (server_id) DO UPDATE SET status = EXCLUDED.status, error = EXCLUDED.error, tools = EXCLUDED.tools,
+           latency_ms = EXCLUDED.latency_ms, checked_at = EXCLUDED.checked_at
+         WHERE server_health.checked_at < EXCLUDED.checked_at`,
+        [id, snap.status, snap.error, JSON.stringify(snap.tools), snap.latencyMs, snap.checkedAt],
+      )
+      .catch((err) => console.error('Saving server health failed:', err));
+  }
+
+  /** Adopts checks that another replica ran more recently than this one. One small query. */
+  async sync(): Promise<void> {
+    const { rows } = await this.db.query<{
+      server_id: number;
+      status: Status;
+      error: string | null;
+      tools: Tool[];
+      latency_ms: number | null;
+      checked_at: Date;
+    }>('SELECT * FROM server_health');
+    for (const r of rows) {
+      const local = this.snapshots.get(r.server_id);
+      if (local?.checkedAt && local.checkedAt >= r.checked_at) continue;
+      this.snapshots.set(r.server_id, { status: r.status, error: r.error, tools: r.tools, checkedAt: r.checked_at, latencyMs: r.latency_ms });
+    }
+  }
+
   /** The static credential stays here: it is decrypted only to build the upstream request. */
   private headers(row: ServerRow): Record<string, string> {
     if (row.auth_type === 'none' || !row.credential_enc) return {};
@@ -130,7 +161,7 @@ export class Upstreams {
     } finally {
       await client?.close().catch(() => undefined);
     }
-    this.snapshots.set(row.id, snap);
+    await this.remember(row.id, snap);
     return snap;
   }
 
@@ -161,7 +192,8 @@ export class Upstreams {
   async listTools(caller: Pick<Caller, 'role'>): Promise<Tool[]> {
     const rows = (await this.servers()).filter((r) => r.enabled);
     const restrictions = await this.restrictions();
-    // A server added on another replica has no snapshot here yet: check it now (bounded by timeout).
+    await this.sync().catch(() => undefined);
+    // A server no replica has checked yet: check it now (bounded by timeout).
     await Promise.allSettled(rows.filter((r) => !this.snapshots.has(r.id)).map((r) => this.check(r)));
     const tools: Tool[] = [];
     for (const row of rows) {
@@ -256,7 +288,7 @@ export class Upstreams {
       } catch (err) {
         const message = `Server '${row.name}' is unreachable: ${describeError(err, this.config.listTimeoutMs)}`;
         const prev = this.snapshots.get(row.id);
-        this.snapshots.set(row.id, { ...(prev ?? emptySnapshot()), status: 'unreachable', error: message, checkedAt: new Date() });
+        await this.remember(row.id, { ...(prev ?? emptySnapshot()), status: 'unreachable', error: message, checkedAt: new Date() });
         await audit('error', message);
         return errorResult(message);
       }

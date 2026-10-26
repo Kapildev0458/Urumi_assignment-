@@ -52,6 +52,15 @@ CREATE TABLE IF NOT EXISTS servers (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Latest health check per server, whichever replica ran it, so every replica shows the same status.
+CREATE TABLE IF NOT EXISTS server_health (
+  server_id  INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+  status     TEXT NOT NULL,
+  error      TEXT,
+  tools      JSONB NOT NULL DEFAULT '[]',
+  latency_ms INTEGER,
+  checked_at TIMESTAMPTZ NOT NULL
+);
 -- Tool permissions: a row makes one upstream tool (or every tool, with '*') admin-only.
 CREATE TABLE IF NOT EXISTS tool_restrictions (
   server_id  INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,

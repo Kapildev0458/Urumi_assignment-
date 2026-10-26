@@ -1,4 +1,4 @@
-# Architecture
+# Architecture: system design and tradeoffs
 
 How the WooCommerce hosting platform and its team MCP gateway fit together, and why each design
 choice was made. Setup and the demo walkthrough are in the [README](../README.md); the brief is in
@@ -65,9 +65,11 @@ agent all go through it.
 Because the agent shares one code path with `/mcp`, the chat and external clients can never see
 different tools or skip the audit.
 
-**Health:** every 15 s (and right after an admin change), the gateway connects to each enabled
-server and lists its tools. The result (Connected or Unreachable with a reason, plus latency) is
-cached per replica and shown in the dashboard.
+**Health:** every 15 s (and right after an admin change, or when a call finds a server down), the
+gateway connects to each enabled server and lists its tools. The result (Connected or Unreachable
+with a reason, latency and the tool list) is cached in memory and also written to
+`server_health`. Every replica adopts the newest check from any replica before it answers, so all
+replicas show the same status.
 
 ## Key decisions
 
@@ -83,19 +85,28 @@ cached per replica and shown in the dashboard.
 | LLM key outside Helm | `secretKeyRef … optional: true` to a Secret the user creates with `kubectl`. No key ever sits in values files, and the platform installs and runs without one. |
 | Chat loop on the server | The browser never holds an LLM key or upstream credential, and calls are audited under the logged-in user. Claude goes through the official SDK, with server-side refusal fallback (`fallbacks: "default"`) and `effort: medium`. Other providers use the OpenAI-compatible API. |
 | WooCommerce REST API | See README, "How it talks to the store" (OAuth 1.0a over in-cluster HTTP, least-privilege key). |
+| Many tools: search, then call | With hundreds of tools the model's context fills up and tool choice gets worse. In search mode the client gets two meta-tools: keyword search over the tools the caller may use (returning schemas), then a call by name through the normal path. Keyword ranking was chosen over embeddings: no extra model or service, deterministic, and good enough for names like `woo__list_orders`. The chat switches over automatically above 40 tools. |
+| Rate limits in PostgreSQL | Fixed one-minute windows with an `INSERT … ON CONFLICT DO UPDATE` counter. One round trip per request, and correct across replicas without Redis. The tradeoff is a burst of up to 2× at a window boundary, which is fine for abuse protection. |
 | Tool permissions per role | A `tool_restrictions` row (tool name, or `*` for the whole server) makes a tool admin-only. It is applied in the one shared `listTools`/`callTool` path, so `/mcp` and the chat can't disagree. Restricted tools are hidden from the list *and* rejected by name (`denied` in the audit), because hiding alone is not a security boundary. |
 
 ## Security summary
 
-- **NetworkPolicies:**
+- **NetworkPolicies:** deny by default (`default-deny-ingress` selects every pod in the
+  namespace), plus one allow rule per component:
   - upstream MCP servers ← gateway only
   - PostgreSQL ← gateway only
   - gateway and dashboard ← ingress controller only
   - MariaDB ← WordPress and setup job only
   - WordPress ← Traefik, setup job, woo-mcp
-- **Containers:** non-root with numeric uids, read-only root filesystem, `drop: [ALL]`,
-  `seccompProfile: RuntimeDefault`, no service-account token. No component calls the Kubernetes
-  API, so no RBAC is needed.
+- **Containers:**
+  - Our apps: non-root with numeric uids, read-only root filesystem, `drop: [ALL]`,
+    `seccompProfile: RuntimeDefault`.
+  - MariaDB: runs as its `mysql` user (999) with `drop: [ALL]`.
+  - WordPress: the official image's Apache starts as root to bind port 80, then serves as
+    `www-data`.
+  - No pod gets a service-account token. No component calls the Kubernetes API, so no RBAC is needed.
+- **Rate limits:** 120 MCP requests per minute per key and 10 chat messages per minute per user,
+  shared across replicas.
 - **SSRF:** admin-entered upstream URLs must be http(s), carry no userinfo, and may not be or
   resolve to link-local or cloud-metadata addresses (`169.254.0.0/16`, `fe80::/10`,
   `metadata.google.internal`). Cluster-internal names stay allowed on purpose, because that is
@@ -116,8 +127,10 @@ The same charts are used everywhere; only values change.
 | `global.domain` | `127.0.0.1.nip.io` | your domain (or `<vps-ip>.nip.io`) |
 | TLS | off | on, cert-manager `letsencrypt-prod`. One cert `app-tls` is issued from the gateway Ingress and reused by the dashboard Ingress. Store TLS is set the same way. |
 | Session cookie | `Secure` off | `Secure` on (follows `ingress.tls.enabled`) |
-| Images | `localhost:5000/urumi/*` (k3d registry) | `ghcr.io/<you>/urumi-*` |
-| Replicas | 1 each | gateway 2, dashboard 2 (stateless, shared PostgreSQL) |
+| Images | `localhost:5000/urumi/*` (k3d registry) | built on the server by `scripts/vps-setup.sh` and imported into k3s, or a registry such as `ghcr.io/<you>/urumi-*` |
+| DNS | nip.io wildcard → 127.0.0.1 | sslip.io wildcard → public IP, or A records for `store.` and `app.` |
+| Secrets | generated by Helm `lookup`, LLM key by `kubectl` | same; back up `urumi-gateway-secrets` (its `credentials-key` decrypts stored upstream credentials) |
+| Replicas | gateway 2, others 1 | gateway 2, dashboard 2 (stateless, shared PostgreSQL) |
 | Storage | `local-path`, small | `local-path` (k3s), larger PVCs |
 | Store resources and sample product | small, sample product on | larger, sample product off |
 
@@ -142,8 +155,13 @@ The same charts are used everywhere; only values change.
 
 ## Known limitations / next steps
 
-- Status snapshots are per replica, so after an outage one replica can show "Connected" up to
-  15 s before another.
+- Not deployed to a public VPS for this submission. `scripts/vps-setup.sh` and the README steps
+  are ready but have not been run on a real server.
+- WordPress (Apache) starts as root inside its container; the other containers are non-root.
+- Egress is not restricted. The gateway must reach admin-chosen upstream URLs and the LLM API.
+  The MCP servers could get egress policies limited to WordPress and DNS.
+- Not attempted: multi-store provisioning, OAuth on the gateway, hosted MCP servers.
+
 - Tool permissions are per role (admin-only or everyone), not per user. Per-user allow lists
   would add a `user_id` column to `tool_restrictions`.
 - Invites are copy-paste links, since there is no mail server.

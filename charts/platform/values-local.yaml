@@ -34,6 +34,8 @@ time-mcp:
 gateway:
   image:
     repository: localhost:5000/urumi/gateway
+  # Two replicas locally too, to show that stateless MCP, shared health and rate limits work.
+  replicas: 2
   admin:
     email: admin@urumi.local
   database:

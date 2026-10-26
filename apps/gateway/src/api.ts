@@ -195,7 +195,8 @@ export function apiRouter(db: Db, config: Config, upstreams: Upstreams): express
   const serverView = async (row: ServerRow, user: User) => publicServer(row, upstreams, await upstreams.restrictions(), user.role);
 
   api.get('/servers', async (req, res) => {
-    const [rows, restrictions] = await Promise.all([upstreams.servers(), upstreams.restrictions()]);
+    // Show the newest health check of any replica, so every replica reports the same status.
+    const [rows, restrictions] = await Promise.all([upstreams.servers(), upstreams.restrictions(), upstreams.sync()]);
     res.json(rows.map((r) => publicServer(r, upstreams, restrictions, me(req).role)));
   });
 
