@@ -111,6 +111,17 @@ if (-not ((Api $A Get '/tools').name -match '^notes__')) { Ok 'notes tools hidde
 Api $A Patch "/servers/$($notes.id)" @{ enabled = $true } | Out-Null
 Ok 're-enabled notes'
 
+Step 'Tool permissions: woo create_product admin-only -> hidden from B and rejected'
+$woo = (Api $A Get '/servers') | Where-Object { $_.name -eq 'woo' }
+Api $A Put "/servers/$($woo.id)/permissions" @{ tool = 'create_product'; adminOnly = $true } | Out-Null
+if (-not ((ToolNames $bKey.key) -contains 'woo__create_product')) { Ok 'hidden from B''s tools/list' } else { Bad 'B still lists create_product' }
+if ((ToolNames $bKey.key) -contains 'woo__list_orders') { Ok 'B keeps woo__list_orders' } else { Bad 'B lost list_orders' }
+$pc = Mcp $bKey.key 'tools/call' @{ name = 'woo__create_product'; arguments = @{ name = "Blocked $stamp"; regular_price = '1.00' } }
+if ($pc.result.isError -and $pc.result.content[0].text -match 'restricted') { Ok "direct call rejected: $($pc.result.content[0].text)" } else { Bad "B could call create_product: $($pc | ConvertTo-Json -Depth 6 -Compress)" }
+if ((Api $A Get '/tools').name -contains 'woo__create_product') { Ok 'admin still sees create_product' } else { Bad 'admin lost create_product' }
+Api $A Put "/servers/$($woo.id)/permissions" @{ tool = 'create_product'; adminOnly = $false } | Out-Null
+if ((ToolNames $bKey.key) -contains 'woo__create_product') { Ok 'allowed again for B' } else { Bad 'restriction not removed' }
+
 Step 'Kill time-mcp pod -> Unreachable, woo still works'
 kubectl -n urumi scale deploy urumi-time-mcp --replicas=0 | Out-Null
 kubectl -n urumi wait --for=delete pod -l app.kubernetes.io/name=time-mcp --timeout=60s 2>$null | Out-Null
@@ -136,7 +147,8 @@ Step 'Audit log'
 $audit = Api $A Get '/audit?limit=40'
 $audit | Select-Object -First 20 | ForEach-Object { Write-Host ("  {0,-34} {1,-5} {2,-7} {3,-20} {4,-8} {5}ms" -f $_.userEmail, $_.via, $_.server, $_.tool, $_.outcome, $_.durationMs) }
 if ($audit | Where-Object { $_.userEmail -eq 'admin@urumi.local' -and $_.via -eq 'chat' }) { Ok 'chat calls audited under admin' } else { Bad 'no admin chat audit' }
-if ($audit | Where-Object { $_.userEmail -eq $bUser.email -and $_.outcome -eq 'denied' }) { Ok 'B revoked call audited as denied' } else { Bad 'no denied entry for B' }
+if ($audit | Where-Object { $_.userEmail -eq $bUser.email -and $_.outcome -eq 'denied' -and $_.tool -eq 'tools/list' }) { Ok 'B revoked call audited as denied' } else { Bad 'no denied entry for B' }
+if ($audit | Where-Object { $_.userEmail -eq $bUser.email -and $_.outcome -eq 'denied' -and $_.tool -eq 'create_product' }) { Ok 'B restricted call audited as denied' } else { Bad 'no denied entry for restricted call' }
 
 Write-Host "`nFailures: $script:fails" -ForegroundColor ($(if ($script:fails) { 'Red' } else { 'Green' }))
 

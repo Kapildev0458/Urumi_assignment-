@@ -39,7 +39,7 @@ app.kubernetes.io/component: woo-mcp
 {{- end }}
 
 {{- define "woo-mcp.storePublicUrl" -}}
-{{- .Values.store.publicUrl | default (printf "http://store.%s" .Values.global.domain) }}
+{{- .Values.store.publicUrl | default (printf "%s://store.%s" (ternary "https" "http" .Values.store.publicTls) .Values.global.domain) }}
 {{- end }}
 
 {{- define "woo-mcp.storeApiSecret" -}}

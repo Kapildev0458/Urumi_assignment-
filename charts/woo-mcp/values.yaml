@@ -19,8 +19,10 @@ store:
   # In-cluster WordPress URL. Default: http://<release>-store-wordpress
   serviceUrl: ""
   # Store's public home URL (WP_HOME); WooCommerce verifies OAuth signatures against it.
-  # Default: http://store.<global.domain>
+  # Default: http(s)://store.<global.domain>
   publicUrl: ""
+  # Must match the store's ingress TLS setting: the home URL is https when the store has TLS.
+  publicTls: false
   # Secret with consumer-key / consumer-secret. Default: <release>-store-woo-api
   apiSecret: ""
   timeoutMs: 10000

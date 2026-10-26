@@ -20,7 +20,7 @@ function gatewayServer(user: User, upstreams: Upstreams): Server {
         '(e.g. woo__list_orders, notes__add_note). Calls run as the API key owner and are audited.',
     },
   );
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: await upstreams.listTools() }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: await upstreams.listTools(user) }));
   server.setRequestHandler(CallToolRequestSchema, async (request) =>
     upstreams.callTool(request.params.name, request.params.arguments, user, 'mcp'),
   );

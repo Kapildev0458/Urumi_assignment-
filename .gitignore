@@ -22,3 +22,6 @@ charts/platform/values-images.yaml
 
 # Local test data of notes-mcp
 apps/notes-mcp/notes.json
+
+# Personal demo-prep notes (not part of the submission)
+prep/

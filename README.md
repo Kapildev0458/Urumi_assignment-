@@ -11,8 +11,11 @@ apps/          woo-mcp, notes-mcp, time-mcp (upstream MCP servers), gateway (bac
 charts/        Helm charts: umbrella "platform" (values-local/prod) + one chart per component
 k3d/           local cluster definition + ingress smoke test
 scripts/       PowerShell helpers: prerequisites, cluster up/down, build images, deploy
-docs/          brief (ASSIGNMENT.md) and design (ARCHITECTURE.md)
+docs/          brief (ASSIGNMENT.md), system design and tradeoffs (ARCHITECTURE.md), threat model (THREAT-MODEL.md)
 ```
+
+- **System design and tradeoffs:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- **Threat model:** [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md)
 
 ## Local environment
 
@@ -237,9 +240,18 @@ Node.js + TypeScript, official MCP SDK, PostgreSQL. Design details and trade-off
   - Every user can generate their own API keys; admins can issue keys for anyone and revoke any key.
   - Keys are shown once and stored only as a SHA-256 hash. They are 256-bit random, so a fast
     hash is safe. Passwords use scrypt.
+- **Tool permissions** (per role): on the Servers page an admin ticks *admins only* on a tool,
+  or on a whole server.
+  - Members no longer see that tool in `tools/list`, in the chat or on the Servers page.
+  - A member who calls it by name gets "Tool '…' is restricted to admins", audited as `denied`.
+  - Example from the brief: make `woo__create_product` and `woo__update_order_status` admin-only.
+    Members can still read products and orders.
+  - Stored in `tool_restrictions`, and read on every list and call like the enabled flag, so a
+    change applies at once on every replica (`PUT /api/servers/:id/permissions`).
 - **Audit log:** every tool call is recorded with user, via (`mcp` or `chat`), server, tool, time,
   duration and outcome (`success`, `error` or `denied`).
-  - Requests with a revoked key are recorded as `denied` under the key's owner.
+  - Requests with a revoked key, and calls to a restricted tool, are recorded as `denied` under the
+    user.
 - **Seeding:** on first start the gateway creates the admin (`admin.email`, generated password)
   and registers woo, notes and time.
   - The tokens are read from each server's generated auth Secret, so nobody types or stores them.
@@ -247,7 +259,7 @@ Node.js + TypeScript, official MCP SDK, PostgreSQL. Design details and trade-off
 
 ```powershell
 kubectl -n urumi get secret urumi-gateway-secrets -o jsonpath="{.data.admin-password}"   # base64; login: admin@urumi.local
-cd apps\gateway; npm install; npm test      # unit tests (encryption, hashing, keys)
+cd apps\gateway; npm install; npm test      # unit tests (encryption, hashing, keys, tool permissions)
 ```
 
 ## Dashboard (`apps/dashboard`, `charts/dashboard`)

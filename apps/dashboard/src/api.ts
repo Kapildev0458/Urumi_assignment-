@@ -20,7 +20,10 @@ export interface ServerInfo {
   error: string | null;
   checkedAt: string | null;
   latencyMs: number | null;
-  tools: { name: string; fullName: string; description: string }[];
+  /** Every tool of this server is admin-only. */
+  adminOnly: boolean;
+  /** Members only receive the tools they may use. */
+  tools: { name: string; fullName: string; description: string; adminOnly: boolean }[];
 }
 
 export interface ApiKey {

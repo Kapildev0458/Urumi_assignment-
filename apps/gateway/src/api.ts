@@ -8,7 +8,7 @@ import { llmConfigured, runChat } from './chat.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { encrypt, hashPassword, newApiKey, newToken, sha256, verifyPassword } from './security.js';
-import { SEPARATOR, SERVER_NAME, type ServerRow, type Upstreams } from './upstreams.js';
+import { allowed, SEPARATOR, SERVER_NAME, type Restrictions, type ServerRow, type Upstreams } from './upstreams.js';
 
 class HttpError extends Error {
   constructor(
@@ -68,9 +68,13 @@ const serverInput = z.object({
   enabled: z.boolean().default(true),
 });
 
-/** Never includes the credential: only whether one is set. */
-function publicServer(row: ServerRow, upstreams: Upstreams) {
+/**
+ * Never includes the credential: only whether one is set. Members only see the tools they may
+ * use; admins see every tool with its adminOnly flag.
+ */
+function publicServer(row: ServerRow, upstreams: Upstreams, restrictions: Restrictions, role: User['role']) {
   const snap = upstreams.snapshot(row);
+  const set = restrictions.get(row.id);
   return {
     id: row.id,
     name: row.name,
@@ -83,7 +87,15 @@ function publicServer(row: ServerRow, upstreams: Upstreams) {
     error: snap.error,
     checkedAt: snap.checkedAt,
     latencyMs: snap.latencyMs,
-    tools: snap.tools.map((t) => ({ name: t.name, fullName: `${row.name}${SEPARATOR}${t.name}`, description: t.description ?? '' })),
+    adminOnly: !!set?.has('*'),
+    tools: snap.tools
+      .filter((t) => allowed(restrictions, role, row.id, t.name))
+      .map((t) => ({
+        name: t.name,
+        fullName: `${row.name}${SEPARATOR}${t.name}`,
+        description: t.description ?? '',
+        adminOnly: !!set && (set.has('*') || set.has(t.name)),
+      })),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -175,13 +187,16 @@ export function apiRouter(db: Db, config: Config, upstreams: Upstreams): express
     res.json(me(req));
   });
 
-  api.get('/servers', async (_req, res) => {
-    const rows = await upstreams.servers();
-    res.json(rows.map((r) => publicServer(r, upstreams)));
+  /** One server as the caller may see it (admin-only routes pass an admin). */
+  const serverView = async (row: ServerRow, user: User) => publicServer(row, upstreams, await upstreams.restrictions(), user.role);
+
+  api.get('/servers', async (req, res) => {
+    const [rows, restrictions] = await Promise.all([upstreams.servers(), upstreams.restrictions()]);
+    res.json(rows.map((r) => publicServer(r, upstreams, restrictions, me(req).role)));
   });
 
-  api.get('/tools', async (_req, res) => {
-    const tools = await upstreams.listTools();
+  api.get('/tools', async (req, res) => {
+    const tools = await upstreams.listTools(me(req));
     res.json(tools.map((t) => ({ name: t.name, description: t.description ?? '' })));
   });
 
@@ -287,7 +302,7 @@ export function apiRouter(db: Db, config: Config, upstreams: Upstreams): express
         throw err;
       });
     await upstreams.check(rows[0]);
-    res.status(201).json(publicServer(rows[0], upstreams));
+    res.status(201).json(await serverView(rows[0], me(req)));
   });
 
   api.patch('/servers/:id', async (req, res) => {
@@ -320,7 +335,21 @@ export function apiRouter(db: Db, config: Config, upstreams: Upstreams): express
         throw err;
       });
     await upstreams.check(rows[0]);
-    res.json(publicServer(rows[0], upstreams));
+    res.json(await serverView(rows[0], me(req)));
+  });
+
+  // Tool permissions: make one tool (or '*' = the whole server) admin-only, or allow it again.
+  api.put('/servers/:id/permissions', async (req, res) => {
+    const serverId = id(req);
+    const body = parse(z.object({ tool: z.string().min(1).max(128), adminOnly: z.boolean() }), req.body);
+    const row = (await db.query<ServerRow>('SELECT * FROM servers WHERE id = $1', [serverId])).rows[0];
+    if (!row) throw new HttpError(404, 'No such server');
+    if (body.adminOnly) {
+      await db.query('INSERT INTO tool_restrictions (server_id, tool) VALUES ($1, $2) ON CONFLICT DO NOTHING', [serverId, body.tool]);
+    } else {
+      await db.query('DELETE FROM tool_restrictions WHERE server_id = $1 AND tool = $2', [serverId, body.tool]);
+    }
+    res.json(await serverView(row, me(req)));
   });
 
   api.delete('/servers/:id', async (req, res) => {
@@ -334,7 +363,7 @@ export function apiRouter(db: Db, config: Config, upstreams: Upstreams): express
     const row = (await db.query<ServerRow>('SELECT * FROM servers WHERE id = $1', [id(req)])).rows[0];
     if (!row) throw new HttpError(404, 'No such server');
     await upstreams.check(row);
-    res.json(publicServer(row, upstreams));
+    res.json(await serverView(row, me(req)));
   });
 
   api.get('/users', async (_req, res) => {

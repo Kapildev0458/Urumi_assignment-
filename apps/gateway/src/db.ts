@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS servers (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Tool permissions: a row makes one upstream tool (or every tool, with '*') admin-only.
+CREATE TABLE IF NOT EXISTS tool_restrictions (
+  server_id  INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  tool       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (server_id, tool)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
   id          BIGSERIAL PRIMARY KEY,
   at          TIMESTAMPTZ NOT NULL DEFAULT now(),

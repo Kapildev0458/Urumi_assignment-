@@ -83,6 +83,7 @@ cached per replica and shown in the dashboard.
 | LLM key outside Helm | `secretKeyRef … optional: true` to a Secret the user creates with `kubectl`. No key ever sits in values files, and the platform installs and runs without one. |
 | Chat loop on the server | The browser never holds an LLM key or upstream credential, and calls are audited under the logged-in user. Claude goes through the official SDK, with server-side refusal fallback (`fallbacks: "default"`) and `effort: medium`. Other providers use the OpenAI-compatible API. |
 | WooCommerce REST API | See README, "How it talks to the store" (OAuth 1.0a over in-cluster HTTP, least-privilege key). |
+| Tool permissions per role | A `tool_restrictions` row (tool name, or `*` for the whole server) makes a tool admin-only. It is applied in the one shared `listTools`/`callTool` path, so `/mcp` and the chat can't disagree. Restricted tools are hidden from the list *and* rejected by name (`denied` in the audit), because hiding alone is not a security boundary. |
 
 ## Security summary
 
@@ -143,8 +144,8 @@ The same charts are used everywhere; only values change.
 
 - Status snapshots are per replica, so after an outage one replica can show "Connected" up to
   15 s before another.
-- No tool-level permissions yet: every member can call every tool of every enabled server
-  (bonus item 2).
+- Tool permissions are per role (admin-only or everyone), not per user. Per-user allow lists
+  would add a `user_id` column to `tool_restrictions`.
 - Invites are copy-paste links, since there is no mail server.
 - The chat history lives in the browser, and only text turns are sent back (each turn's tool loop
   is complete on the server).

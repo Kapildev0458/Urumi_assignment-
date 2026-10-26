@@ -42,6 +42,17 @@ export interface Snapshot {
 export interface Caller {
   id: number;
   email: string;
+  role: 'admin' | 'member';
+}
+
+/** Admin-only tools per server id: upstream tool names, or '*' for the whole server. */
+export type Restrictions = Map<number, Set<string>>;
+
+/** Tool permissions: admins may use everything, members only what is not restricted. */
+export function allowed(restrictions: Restrictions, role: Caller['role'], serverId: number, tool: string): boolean {
+  if (role === 'admin') return true;
+  const set = restrictions.get(serverId);
+  return !set || !(set.has('*') || set.has(tool));
 }
 
 export class Upstreams {
@@ -56,6 +67,14 @@ export class Upstreams {
   async servers(): Promise<ServerRow[]> {
     const { rows } = await this.db.query<ServerRow>('SELECT * FROM servers ORDER BY id');
     return rows;
+  }
+
+  /** Read on every list and call (like `enabled`), so a change applies at once on every replica. */
+  async restrictions(): Promise<Restrictions> {
+    const { rows } = await this.db.query<{ server_id: number; tool: string }>('SELECT server_id, tool FROM tool_restrictions');
+    const map: Restrictions = new Map();
+    for (const r of rows) map.set(r.server_id, (map.get(r.server_id) ?? new Set()).add(r.tool));
+    return map;
   }
 
   snapshot(row: ServerRow): Snapshot {
@@ -135,11 +154,13 @@ export class Upstreams {
   }
 
   /**
-   * Aggregated tool list. The enabled flag is read from the database on every call, so disabling a
-   * server hides its tools immediately on every gateway replica; tools come from the snapshot.
+   * Aggregated tool list for one caller. The enabled flag and tool permissions are read from the
+   * database on every call, so a change applies immediately on every gateway replica; tools come
+   * from the snapshot. Tools the caller's role may not use are left out.
    */
-  async listTools(): Promise<Tool[]> {
+  async listTools(caller: Pick<Caller, 'role'>): Promise<Tool[]> {
     const rows = (await this.servers()).filter((r) => r.enabled);
+    const restrictions = await this.restrictions();
     // A server added on another replica has no snapshot here yet: check it now (bounded by timeout).
     await Promise.allSettled(rows.filter((r) => !this.snapshots.has(r.id)).map((r) => this.check(r)));
     const tools: Tool[] = [];
@@ -147,6 +168,7 @@ export class Upstreams {
       const snap = this.snapshot(row);
       if (snap.status !== 'connected') continue;
       for (const tool of snap.tools) {
+        if (!allowed(restrictions, caller.role, row.id, tool.name)) continue;
         tools.push({
           ...tool,
           name: `${row.name}${SEPARATOR}${tool.name}`,
@@ -169,7 +191,7 @@ export class Upstreams {
     const cut = fullName.indexOf(SEPARATOR);
     const serverName = cut > 0 ? fullName.slice(0, cut) : null;
     const tool = cut > 0 ? fullName.slice(cut + SEPARATOR.length) : fullName;
-    const audit = (outcome: 'success' | 'error', error?: string) =>
+    const audit = (outcome: 'success' | 'error' | 'denied', error?: string) =>
       writeAudit(this.db, {
         userId: caller.id,
         userEmail: caller.email,
@@ -189,6 +211,12 @@ export class Upstreams {
         ? `Unknown tool '${fullName}'. Tool names look like <server>${SEPARATOR}<tool>.`
         : `Server '${row.name}' is disabled.`;
       await audit('error', message);
+      return errorResult(message);
+    }
+    // Hidden tools are also rejected when called by name.
+    if (!allowed(await this.restrictions(), caller.role, row.id, tool)) {
+      const message = `Tool '${fullName}' is restricted to admins.`;
+      await audit('denied', message);
       return errorResult(message);
     }
 

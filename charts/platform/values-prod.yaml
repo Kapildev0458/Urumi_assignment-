@@ -42,6 +42,9 @@ woo-mcp:
   image:
     # The VPS has no k3d registry; push the same image to a real registry (or `k3s ctr images import`).
     repository: ghcr.io/your-user/urumi-woo-mcp
+  store:
+    # The store has TLS here, so its home URL (used in WooCommerce's OAuth signature) is https.
+    publicTls: true
 
 notes-mcp:
   image:

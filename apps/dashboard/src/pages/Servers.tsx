@@ -45,6 +45,9 @@ export function ServersPage({ user }: { user: User }) {
     }
   };
 
+  const setPermission = (serverId: number, tool: string, adminOnly: boolean) =>
+    act(() => api('PUT', `/servers/${serverId}/permissions`, { tool, adminOnly }));
+
   const startEdit = (s: ServerInfo) => {
     setEditing(s.id);
     setForm({ name: s.name, url: s.url, authType: s.authType, authHeader: s.authHeader ?? 'X-API-Key', credential: '' });
@@ -173,6 +176,9 @@ export function ServersPage({ user }: { user: User }) {
                   <button className="link" onClick={() => setOpen(open === s.id ? null : s.id)}>
                     {s.tools.length} tool{s.tools.length === 1 ? '' : 's'} {open === s.id ? '▲' : '▼'}
                   </button>
+                  {isAdmin && (s.adminOnly || s.tools.some((t) => t.adminOnly)) && (
+                    <div className="muted small">{s.adminOnly ? 'all admin-only' : `${s.tools.filter((t) => t.adminOnly).length} admin-only`}</div>
+                  )}
                 </td>
                 <td className="small">{s.authType === 'none' ? 'none' : `${s.authType}${s.hasCredential ? ' (set)' : ''}`}</td>
                 {isAdmin && (
@@ -198,10 +204,35 @@ export function ServersPage({ user }: { user: User }) {
               {open === s.id && (
                 <tr className="sub">
                   <td colSpan={isAdmin ? 5 : 4}>
-                    {s.tools.length === 0 && <span className="muted">No tools (server is not connected).</span>}
+                    {s.tools.length === 0 && (
+                      <span className="muted">
+                        {s.status === 'connected' ? 'No tools available to you.' : 'No tools (server is not connected).'}
+                      </span>
+                    )}
+                    {isAdmin && (
+                      <label className="perm">
+                        <input
+                          type="checkbox"
+                          checked={s.adminOnly}
+                          onChange={(e) => setPermission(s.id, '*', e.target.checked)}
+                        />{' '}
+                        Whole server admins only <span className="muted small">(hidden from members and rejected if they call it)</span>
+                      </label>
+                    )}
                     <ul className="tools">
                       {s.tools.map((t) => (
                         <li key={t.name}>
+                          {isAdmin && (
+                            <label className="perm" title="Admins only: hidden from members and rejected if called directly">
+                              <input
+                                type="checkbox"
+                                checked={t.adminOnly}
+                                disabled={s.adminOnly}
+                                onChange={(e) => setPermission(s.id, t.name, e.target.checked)}
+                              />{' '}
+                              admins only
+                            </label>
+                          )}{' '}
                           <code>{t.fullName}</code> <span className="muted">{t.description}</span>
                         </li>
                       ))}
